@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/github-script@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -39,15 +39,19 @@ jobs:
           cd apps/api
           npm ci
 
-      - name: Run Prisma Migration & Seed
+      - name: Generate Prisma Client & Push DB Schema
         env:
           DATABASE_URL: "postgresql://postgres:password@localhost:5432/tesla_pool_db?schema=public"
         run: |
           cd apps/api
-          npx prisma migrate dev --name init || npx prisma db push
+          npx prisma generate
+          npx prisma db push --skip-generate
           npx prisma db seed
 
       - name: Type Check & Build
+        env:
+          DATABASE_URL: "postgresql://postgres:password@localhost:5432/tesla_pool_db?schema=public"
+          JWT_SECRET: "ci-test-secret-key-2026"
         run: |
           cd apps/api
           npm run build
