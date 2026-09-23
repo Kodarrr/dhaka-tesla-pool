@@ -1,0 +1,93 @@
+enum Role {
+  PASSENGER
+  DRIVER
+}
+enum Stage {
+  REQUESTED
+  MATCHED
+  DRIVER_ARRIVED
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime      @default(now())
+
+  tesla        Tesla?
+  rideRequests RideRequest[]
+}
+
+model Tesla {
+  id        String   @id @default(uuid())
+  driverId  String   @unique
+  driver    User     @relation(fields: [driverId], references: [id])
+  name      String
+  plate     String   @unique
+  capacity  Int
+  isOnline  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  pools Pool[]
+}
+
+
+// One Pool = one Tesla trip. It may start with no teslaId (open,
+// waiting for a driver to accept) and gains one on MATCHED.
+model Pool {
+  id          String   @id @default(uuid())
+  teslaId     String?
+  tesla       Tesla?   @relation(fields: [teslaId], references: [id])
+  pickupZone  String
+  stage       Stage    @default(REQUESTED)
+  // Cap used for matching before a Tesla is assigned (see config/fare.ts).
+  // Re-validated against the real Tesla capacity on accept.
+  seatsCap    Int
+  seatsTaken  Int      @default(0)
+  createdAt   DateTime @default(now())
+  matchedAt   DateTime?
+  arrivedAt   DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  rideRequests RideRequest[]
+
+  @@index([stage])
+}
+
+model RideRequest {
+  id              String    @id @default(uuid())
+  passengerId     String
+  passenger       User      @relation(fields: [passengerId], references: [id])
+  poolId          String?
+  pool            Pool?     @relation(fields: [poolId], references: [id])
+  pickupZone      String
+  destinationZone String
+  seats           Int
+  stage           Stage     @default(REQUESTED)
+
+  // Fare stored in integer paisa (1 taka = 100 paisa) to avoid float
+  // rounding — see config/fare.ts.
+  baseFarePaisa     Int
+  distanceChargePaisa Int
+  poolDiscountPaisa Int      @default(0)
+  totalFarePaisa    Int
+
+  createdAt   DateTime  @default(now())
+  cancelledAt DateTime?
+
+  @@index([passengerId])
+  @@index([poolId])
+}
