@@ -1,0 +1,53 @@
+name: API CI Pipeline
+
+on:
+  push:
+    branches: [ master, pre-release ]
+  pull_request:
+    branches: [ master, pre-release ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: tesla_pool_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/github-script@v7
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: |
+          cd apps/api
+          npm ci
+
+      - name: Run Prisma Migration & Seed
+        env:
+          DATABASE_URL: "postgresql://postgres:password@localhost:5432/tesla_pool_db?schema=public"
+        run: |
+          cd apps/api
+          npx prisma migrate dev --name init || npx prisma db push
+          npx prisma db seed
+
+      - name: Type Check & Build
+        run: |
+          cd apps/api
+          npm run build
