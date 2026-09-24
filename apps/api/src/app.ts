@@ -21,7 +21,7 @@ export function buildApp() {
     });
 
   app.register(cors, {
-    origin: (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:3000').split(','),
+    origin: (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:3001').split(','),
   });
 
   app.register(authPlugin);
