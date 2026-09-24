@@ -47,6 +47,11 @@ jobs:
           npx prisma generate
           npx prisma db push --skip-generate
           npx prisma db seed
+          
+      - name: Run Unit Tests
+        run: |
+          cd apps/api
+          npm test
 
       - name: Type Check & Build
         env:
