@@ -229,7 +229,8 @@ export default function ActivePools() {
             const isArrivedAtDestination = pool.stage === 'ARRIVED_AT_DESTINATION'
             const isCompleted = pool.stage === 'COMPLETED'
 
-            const sortedRiders = [...pool.rideRequests].sort((a, b) => {
+            const activeRiders = pool.rideRequests.filter((r) => r.stage !== 'CANCELLED')
+            const sortedRiders = [...activeRiders].sort((a, b) => {
               const legsA = a.fareBreakdown?.legs?.length ?? 0
               const legsB = b.fareBreakdown?.legs?.length ?? 0
               return legsA - legsB
@@ -336,11 +337,11 @@ export default function ActivePools() {
                               </span>
                               {isPassengerCompleted ? (
                                 <span className="text-[10px] font-bold text-[#00ff9d] bg-[#00ff9d]/15 px-2 py-0.5 rounded border border-[#00ff9d]/30 flex items-center gap-1">
-                                  Left Vehicle · Journey Ended ✅
+                                  Left Vehicle · Paid {req.paymentMethod === 'CASH' ? 'Cash' : 'TeslaPay'} ✅
                                 </span>
                               ) : (
                                 <span className="text-[10px] font-medium text-[#00d4ff] bg-[#00d4ff]/15 px-2 py-0.5 rounded border border-[#00d4ff]/30 flex items-center gap-1">
-                                  Onboard 🚗 · Prepaid ⚡
+                                  Onboard 🚗 · Pay on exit ({req.paymentMethod === 'CASH' ? 'Cash' : 'TeslaPay'})
                                 </span>
                               )}
                             </div>

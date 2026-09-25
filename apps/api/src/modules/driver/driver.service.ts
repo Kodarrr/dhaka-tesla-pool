@@ -18,14 +18,25 @@ export async function acceptPool(driverId: string, poolId: string) {
   if (!pool) throw new DriverError(404, 'Pool not found');
   if (pool.stage !== 'REQUESTED') throw new DriverError(409, 'Pool is not in REQUESTED state');
 
-  const updatedPool = await prisma.pool.update({
-    where: { id: poolId },
-    data: { stage: 'MATCHED', teslaId: tesla.id, matchedAt: new Date() },
-    include: {
-      rideRequests: { include: { passenger: { select: { id: true, name: true } } } },
-      tesla: true,
-    },
-  });
+  const [updatedPool] = await prisma.$transaction([
+    prisma.pool.update({
+      where: { id: poolId },
+      data: { stage: 'MATCHED', teslaId: tesla.id, matchedAt: new Date() },
+      include: {
+        rideRequests: {
+          where: { stage: { not: 'CANCELLED' } },
+          include: { passenger: { select: { id: true, name: true } } },
+        },
+        tesla: {
+          include: { driver: { select: { id: true, name: true } } },
+        },
+      },
+    }),
+    prisma.rideRequest.updateMany({
+      where: { poolId, stage: 'REQUESTED' },
+      data: { stage: 'MATCHED' },
+    }),
+  ]);
 
   // Notify each non-cancelled passenger that their ride has been accepted
   const activeRequests = updatedPool.rideRequests.filter((r) => r.stage !== 'CANCELLED');
@@ -62,7 +73,10 @@ export async function markArrived(driverId: string, poolId: string) {
       where: { id: poolId },
       data: { stage: 'DRIVER_ARRIVED', arrivedAt: new Date() },
       include: {
-        rideRequests: { include: { passenger: { select: { id: true, name: true } } } },
+        rideRequests: {
+          where: { stage: { not: 'CANCELLED' } },
+          include: { passenger: { select: { id: true, name: true } } },
+        },
         tesla: true,
       },
     }),
@@ -88,7 +102,10 @@ export async function arriveTrip(driverId: string, poolId: string) {
       where: { id: poolId },
       data: { stage: 'ARRIVED_AT_DESTINATION', arrivedAt: pool.arrivedAt ?? new Date() },
       include: {
-        rideRequests: { include: { passenger: { select: { id: true, name: true } } } },
+        rideRequests: {
+          where: { stage: { not: 'CANCELLED' } },
+          include: { passenger: { select: { id: true, name: true } } },
+        },
         tesla: true,
       },
     }),
@@ -122,7 +139,10 @@ export async function completeTrip(driverId: string, poolId: string) {
         teslaId: pool.teslaId ?? tesla.id,
       },
       include: {
-        rideRequests: { include: { passenger: { select: { id: true, name: true } } } },
+        rideRequests: {
+          where: { stage: { not: 'CANCELLED' } },
+          include: { passenger: { select: { id: true, name: true } } },
+        },
         tesla: true,
       },
     }),

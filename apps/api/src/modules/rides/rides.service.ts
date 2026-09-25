@@ -148,8 +148,8 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
         maxShareSeats,
         stage: 'REQUESTED',
         paymentMethod: input.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY',
-        paymentStatus: 'PAID',
-        paidAt: new Date(),
+        paymentStatus: 'UNPAID',
+        paidAt: null,
         ...farePersistFields(newRiderFare),
       },
       include: {
@@ -474,8 +474,8 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
         openToShare: false,
         maxShareSeats: 0,
         paymentMethod: input.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY',
-        paymentStatus: 'PAID',
-        paidAt: new Date(),
+        paymentStatus: 'UNPAID',
+        paidAt: null,
         stage: locked.stage === 'REQUESTED' ? 'REQUESTED' : 'MATCHED',
         baseFarePaisa: 0,
         distanceChargePaisa: 0,
@@ -681,7 +681,8 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
     });
 
     if (!ride.poolId) {
-      return updatedRide;
+      await tx.rideRequest.delete({ where: { id: rideRequestId } });
+      return { id: rideRequestId, stage: 'CANCELLED', deleted: true };
     }
 
     // Lock the pool row
@@ -689,32 +690,35 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
       Array<{ id: string; seatsCap: number; seatsTaken: number; corridorId: string | null }>
     >`SELECT id, "seatsCap", "seatsTaken", "corridorId" FROM "Pool" WHERE id = ${ride.poolId} FOR UPDATE`;
 
-    if (!lockedPool) {
-      return updatedRide;
-    }
-
-    // Fetch remaining active requests in the pool
+    // Fetch remaining active requests in the pool excluding the current one
     const remainingRequests = await tx.rideRequest.findMany({
       where: {
         poolId: ride.poolId,
         id: { not: rideRequestId },
-        stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+        stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION'] },
       },
     });
 
-    const newSeatsTaken = remainingRequests.reduce((sum, r) => sum + r.seats, 0);
-
     if (remainingRequests.length === 0) {
-      // No more riders in this pool -> mark pool as CANCELLED
-      await tx.pool.update({
-        where: { id: ride.poolId },
-        data: {
-          seatsTaken: 0,
-          stage: 'CANCELLED',
-        },
+      // Both users or the only user cancelled the ride -> delete for both user end
+      await tx.rideRequest.deleteMany({
+        where: { poolId: ride.poolId },
       });
-      return updatedRide;
+      await tx.pool.delete({
+        where: { id: ride.poolId },
+      });
+      return { id: rideRequestId, stage: 'CANCELLED', deleted: true, poolDeleted: true };
     }
+
+    // Other rider(s) still remain in this pool:
+    // Delete the cancelling user's ride request so:
+    // 1) It is deleted on the cancelling user's end
+    // 2) The pool does not contain the cancelled user's name
+    await tx.rideRequest.delete({
+      where: { id: rideRequestId },
+    });
+
+    const newSeatsTaken = remainingRequests.reduce((sum, r) => sum + r.seats, 0);
 
     // Update pool seatsTaken
     await tx.pool.update({
@@ -723,7 +727,7 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
     });
 
     // Recompute fares for remaining pool members
-    const corridor = lockedPool.corridorId ? findCorridorById(lockedPool.corridorId) : null;
+    const corridor = lockedPool?.corridorId ? findCorridorById(lockedPool.corridorId) : null;
     if (corridor) {
       await persistPoolFares(
         tx,
@@ -738,13 +742,16 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
       );
     }
 
-    return updatedRide;
+    return { id: rideRequestId, stage: 'CANCELLED', deleted: true, poolDeleted: false };
   });
 }
 
 export async function getMyRides(passengerId: string) {
   return prisma.rideRequest.findMany({
-    where: { passengerId },
+    where: {
+      passengerId,
+      stage: { not: 'CANCELLED' },
+    },
     orderBy: { createdAt: 'desc' },
     include: {
       review: true,
@@ -782,6 +789,7 @@ export async function getActiveRides() {
     },
     include: {
       rideRequests: {
+        where: { stage: { not: 'CANCELLED' } },
         include: {
           passenger: {
             select: {
@@ -792,7 +800,13 @@ export async function getActiveRides() {
           },
         },
       },
-      tesla: true,
+      tesla: {
+        include: {
+          driver: {
+            select: { id: true, name: true },
+          },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -1115,7 +1129,11 @@ export async function completeRideWithPaymentCheck(driverId: string, poolOrRideI
   return updatedPool;
 }
 
-export async function leaveRide(passengerId: string, rideId: string) {
+export async function leaveRide(
+  passengerId: string,
+  rideId: string,
+  paymentMethod?: 'TESLAPAY' | 'CASH'
+) {
   const ride = await prisma.rideRequest.findUnique({
     where: { id: rideId },
     include: {
@@ -1132,23 +1150,88 @@ export async function leaveRide(passengerId: string, rideId: string) {
   if (!ride) throw new RideError(404, 'Ride request not found');
   if (ride.passengerId !== passengerId) throw new RideError(403, 'Not your ride');
   if (ride.stage === 'CANCELLED') throw new RideError(400, 'Ride is cancelled');
+  if (ride.stage === 'COMPLETED') throw new RideError(400, 'Ride is already completed');
 
-  const updatedRide = await prisma.rideRequest.update({
-    where: { id: rideId },
-    data: {
-      stage: 'COMPLETED',
-      paymentStatus: 'PAID',
-      paidAt: ride.paidAt ?? new Date(),
-    },
-  });
-
+  const chosenMethod = paymentMethod || (ride.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY');
+  const amount = ride.totalFarePaisa;
   const driverId = ride.pool?.tesla?.driverId;
+
+  let updatedRide;
+
+  if (chosenMethod === 'TESLAPAY') {
+    const passenger = await prisma.user.findUnique({
+      where: { id: passengerId },
+      select: { id: true, name: true, teslaPayBalancePaisa: true },
+    });
+    if (!passenger || passenger.teslaPayBalancePaisa < amount) {
+      const avail = Math.round((passenger?.teslaPayBalancePaisa ?? 0) / 100);
+      const req = Math.round(amount / 100);
+      throw new RideError(
+        402,
+        `Insufficient TeslaPay balance (৳${avail} available, ৳${req} required). Please top up or pay with cash.`
+      );
+    }
+
+    updatedRide = await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: passengerId },
+        data: { teslaPayBalancePaisa: { decrement: amount } },
+      });
+      await tx.walletTransaction.create({
+        data: {
+          userId: passengerId,
+          amountPaisa: -amount,
+          type: 'RIDE_PAYMENT_DEBIT',
+          rideRequestId: rideId,
+        },
+      });
+
+      if (driverId) {
+        await tx.user.update({
+          where: { id: driverId },
+          data: { teslaPayBalancePaisa: { increment: amount } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            userId: driverId,
+            amountPaisa: amount,
+            type: 'RIDE_PAYMENT_CREDIT',
+            rideRequestId: rideId,
+          },
+        });
+      }
+
+      return tx.rideRequest.update({
+        where: { id: rideId },
+        data: {
+          stage: 'COMPLETED',
+          paymentMethod: 'TESLAPAY',
+          paymentStatus: 'PAID',
+          paidAt: new Date(),
+        },
+      });
+    });
+  } else {
+    // CASH payment at exit
+    updatedRide = await prisma.rideRequest.update({
+      where: { id: rideId },
+      data: {
+        stage: 'COMPLETED',
+        paymentMethod: 'CASH',
+        paymentStatus: 'PAID',
+        paidAt: new Date(),
+      },
+    });
+  }
+
   const passengerName = ride.passenger?.name || 'Passenger';
+  const fareBDT = Math.round(amount / 100);
+
   if (driverId) {
     await createNotification({
       userId: driverId,
       type: 'PAYMENT_CONFIRMED',
-      message: `${passengerName} has left the vehicle at ${ride.destinationZone}. Journey ended.`,
+      message: `${passengerName} paid ৳${fareBDT} via ${chosenMethod === 'TESLAPAY' ? 'TeslaPay' : 'Cash'} and exited the vehicle.`,
       rideRequestId: rideId,
       poolId: ride.poolId ?? undefined,
     }).catch(() => {});
@@ -1174,7 +1257,7 @@ export async function leaveRide(passengerId: string, rideId: string) {
         await createNotification({
           userId: driverId,
           type: 'PAYMENT_CONFIRMED',
-          message: 'All passengers have ended their journey! Trip is now completed.',
+          message: 'All passengers have paid and ended their journey! Trip is completed.',
           poolId: ride.poolId,
         }).catch(() => {});
       }

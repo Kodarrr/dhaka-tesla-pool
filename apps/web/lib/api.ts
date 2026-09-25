@@ -162,6 +162,7 @@ export interface RideRequest {
       passengerId: string
       destinationZone: Zone
       seats: number
+      stage?: RideStage
       paymentMethod?: PaymentMethod
       paymentStatus?: PaymentStatus
       passenger: { id: string; name: string }
@@ -511,7 +512,7 @@ export async function apiPayRideV2(rideId: string, method: PaymentMethod): Promi
   return data.ride
 }
 
-export async function apiLeaveRide(rideId: string): Promise<{ success: boolean; ride: RideRequest; poolCompleted: boolean }> {
-  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest; poolCompleted: boolean }>(`/rides/${rideId}/leave`)
+export async function apiLeaveRide(rideId: string, paymentMethod?: PaymentMethod): Promise<{ success: boolean; ride: RideRequest; poolCompleted: boolean }> {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest; poolCompleted: boolean }>(`/rides/${rideId}/leave`, { paymentMethod })
   return data
 }

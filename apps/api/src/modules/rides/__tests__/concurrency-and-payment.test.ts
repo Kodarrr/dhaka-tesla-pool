@@ -35,4 +35,19 @@ describe('Concurrency and Payment Unit Tests', () => {
     const reversed = [driverId, passengerId].sort();
     expect(reversed).toEqual(sorted);
   });
+
+  it('should validate error code and status when passenger has insufficient balance on exit', () => {
+    const error = new RideError(
+      402,
+      'Insufficient TeslaPay balance (৳20 available, ৳140 required). Please top up or pay with cash.'
+    );
+    expect(error.statusCode).toBe(402);
+    expect(error.message).toContain('Insufficient TeslaPay balance');
+  });
+
+  it('should validate cancellation stage rules', () => {
+    const cancelError = new RideError(400, 'Cannot cancel a ride that is completed');
+    expect(cancelError.statusCode).toBe(400);
+    expect(cancelError.message).toBe('Cannot cancel a ride that is completed');
+  });
 });

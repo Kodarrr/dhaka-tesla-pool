@@ -339,7 +339,8 @@ export default async function rideRoutes(fastify: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       try {
-        const result = await leaveRide(req.user.sub, id);
+        const { paymentMethod } = (req.body as any) || {};
+        const result = await leaveRide(req.user.sub, id, paymentMethod);
         return reply.code(200).send(result);
       } catch (err) {
         if (err instanceof RideError) {
