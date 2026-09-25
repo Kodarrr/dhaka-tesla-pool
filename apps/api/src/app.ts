@@ -1,9 +1,12 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { prisma } from './lib/prisma';
+import { prisma } from './lib/prisma.js';
 import authPlugin from './plugins/auth.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import rideRoutes from './modules/rides/rides.routes.js';
+import driverRoutes from './modules/driver/driver.routes.js';
+import userRoutes from './modules/users/users.routes.js';
+import teslasRoutes from './modules/teslas/teslas.routes.js';
 
 export function buildApp() {
   const app = Fastify({ logger: process.env.NODE_ENV === 'production'
@@ -27,6 +30,9 @@ export function buildApp() {
   app.register(authPlugin);
   app.register(authRoutes);
   app.register(rideRoutes, { prefix: '/api/v1/rides' });
+  app.register(driverRoutes, { prefix: '/api/v1/driver' });
+  app.register(userRoutes, { prefix: '/api/v1/users' });
+  app.register(teslasRoutes, { prefix: '/api/v1/teslas' });
 
   app.get('/health', async () => ({ status: 'ok' }));
   app.get('/ready', async (_, reply) => {
