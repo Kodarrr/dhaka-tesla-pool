@@ -1,8 +1,25 @@
 import { FastifyInstance } from 'fastify';
-import { acceptPool, markArrived, completeTrip, DriverError } from './driver.service.js';
+import {
+  acceptPool,
+  markArrived,
+  completeTrip,
+  getDriverHistory,
+  DriverError,
+} from './driver.service.js';
 
 export default async function driverRoutes(fastify: FastifyInstance) {
   const requireDriver = [fastify.authenticate, fastify.requireRole('DRIVER')];
+
+  fastify.get('/history', { preHandler: requireDriver }, async (req, reply) => {
+    try {
+      const history = await getDriverHistory(req.user.sub);
+      return reply.code(200).send(history);
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
 
   fastify.post('/:poolId/accept', { preHandler: requireDriver }, async (req, reply) => {
     const { poolId } = req.params as { poolId: string };

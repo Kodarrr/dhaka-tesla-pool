@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { cn } from '@/lib/utils'
 import { Zap, LogOut, LogIn, UserPlus } from 'lucide-react'
@@ -14,7 +15,7 @@ export default function Navbar() {
       <header className="fixed top-0 inset-x-0 z-50">
       <div className="bg-[#0f1521]/70 backdrop-blur-xl border-b border-[#1f2d44]/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 shrink-0">
+          <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-90 transition-opacity">
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #00d4ff, #00ff9d)' }}
@@ -26,15 +27,19 @@ export default function Navbar() {
               <span className="font-bold bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] bg-clip-text text-transparent ml-1">Tesla Pool</span>
             </div>
             <span className="sm:hidden font-bold bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] bg-clip-text text-transparent text-sm">DTP</span>
-          </div>
+          </Link>
 
           <div className="flex items-center gap-3">
             {isAuthenticated && user ? (
               <>
-                <div className="flex items-center gap-2 min-w-0">
+                <Link
+                  href="/profile"
+                  className="flex items-center gap-2 min-w-0 group hover:opacity-90 transition-opacity cursor-pointer"
+                  title="View your profile & history"
+                >
                   <div
                     className={cn(
-                      'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
+                      'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ring-1 ring-transparent group-hover:ring-[#00d4ff]/40 transition-all',
                       isPassenger
                         ? 'bg-gradient-to-br from-cyan-500 to-blue-600'
                         : 'bg-gradient-to-br from-green-500 to-emerald-600'
@@ -42,7 +47,7 @@ export default function Navbar() {
                   >
                     {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="hidden sm:block text-sm text-[#f0f4ff] font-medium max-w-[140px] truncate">
+                  <span className="hidden sm:block text-sm text-[#f0f4ff] font-medium max-w-[140px] truncate group-hover:text-[#00d4ff] transition-colors">
                     {user.name}
                   </span>
                   <span
@@ -55,7 +60,7 @@ export default function Navbar() {
                   >
                     {user.role}
                   </span>
-                </div>
+                </Link>
                 <button
                   type="button"
                   onClick={logout}

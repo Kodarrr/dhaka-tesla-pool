@@ -746,3 +746,48 @@ export async function getActiveRides() {
     activeRequests,
   };
 }
+
+export async function getPassengerHistory(passengerId: string) {
+  const [rides, aggregate] = await Promise.all([
+    prisma.rideRequest.findMany({
+      where: { passengerId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        pool: {
+          include: {
+            tesla: {
+              include: {
+                driver: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.rideRequest.aggregate({
+      where: { passengerId, stage: 'COMPLETED' },
+      _sum: { totalFarePaisa: true },
+      _count: true,
+    }),
+  ]);
+
+  const formattedRides = rides.map((r) => ({
+    id: r.id,
+    pickupZone: r.pickupZone,
+    destinationZone: r.destinationZone,
+    createdAt: r.createdAt,
+    stage: r.stage,
+    totalFarePaisa: r.totalFarePaisa,
+    driverName: r.pool?.tesla?.driver?.name ?? null,
+  }));
+
+  const completedRideCount = aggregate._count ?? 0;
+
+  return {
+    rides: formattedRides,
+    totalSpentPaisa: aggregate._sum?.totalFarePaisa ?? 0,
+    completedRideCount,
+  };
+}
