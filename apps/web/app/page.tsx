@@ -5,11 +5,12 @@ import { useAuth } from '@/lib/auth-context'
 import Navbar from '@/components/navbar'
 import FareEstimator from '@/components/passenger/fare-estimator'
 import MyRides from '@/components/passenger/my-rides'
+import BrowseSharedRides from '@/components/passenger/browse-shared-rides'
 import ActivePools from '@/components/driver/active-pools'
 import { cn } from '@/lib/utils'
-import { Zap, Car, Users, Shield, TrendingDown, ChevronRight, Loader2 } from 'lucide-react'
+import { Zap, Car, Users, Shield, TrendingDown, ChevronRight, Loader2, Search } from 'lucide-react'
 
-type PassengerTab = 'estimate' | 'rides'
+type PassengerTab = 'estimate' | 'rides' | 'browse'
 
 export default function Home() {
   const { role, isLoading } = useAuth()
@@ -119,8 +120,9 @@ function PassengerView({ tab, onTabChange }: { tab: PassengerTab; onTabChange: (
         {/* Tab switcher */}
         <div className="flex bg-[#161e2e]/60 backdrop-blur-sm border border-[#1f2d44]/40 rounded-2xl p-1.5 gap-1.5">
           {[
-            { id: 'estimate' as const, label: 'Fare Estimator', icon: <Zap className="w-4 h-4" /> },
-            { id: 'rides'    as const, label: 'My Rides',       icon: <Car className="w-4 h-4" /> },
+            { id: 'estimate' as const, label: 'Request',  icon: <Zap className="w-4 h-4" /> },
+            { id: 'browse'   as const, label: 'Browse',   icon: <Search className="w-4 h-4" /> },
+            { id: 'rides'    as const, label: 'My Rides', icon: <Car className="w-4 h-4" /> },
           ].map(({ id, label, icon }) => (
             <button key={id} onClick={() => onTabChange(id)}
               className={cn(
@@ -132,7 +134,7 @@ function PassengerView({ tab, onTabChange }: { tab: PassengerTab; onTabChange: (
             </button>
           ))}
         </div>
-        {tab === 'estimate' ? <FareEstimator /> : <MyRides />}
+        {tab === 'estimate' ? <FareEstimator /> : tab === 'browse' ? <BrowseSharedRides /> : <MyRides />}
       </div>
 
       {/* Sidebar */}

@@ -41,13 +41,28 @@ apiClient.interceptors.response.use(
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type Zone = 'GULSHAN' | 'BANANI' | 'DHANMONDI' | 'UTTARA' | 'MOTIJHEEL'
+export type Zone =
+  | 'GULSHAN'
+  | 'BANANI'
+  | 'MOHAKHALI'
+  | 'DHANMONDI'
+  | 'UTTARA'
+  | 'MOTIJHEEL'
+  | 'BASHUNDHARA'
 
-export const ZONES: Zone[] = ['GULSHAN', 'BANANI', 'DHANMONDI', 'UTTARA', 'MOTIJHEEL']
+export const ZONES: Zone[] = [
+  'UTTARA',
+  'BANANI',
+  'MOHAKHALI',
+  'GULSHAN',
+  'DHANMONDI',
+  'MOTIJHEEL',
+  'BASHUNDHARA',
+]
 
 export type RideStage =
   | 'REQUESTED' | 'MATCHED' | 'DRIVER_ARRIVED'
-  | 'STARTED'  | 'COMPLETED' | 'CANCELLED'
+  | 'COMPLETED' | 'CANCELLED'
 
 export interface EstimateRequest {
   pickupZone: Zone
@@ -63,14 +78,50 @@ export interface PoolOption {
   totalFarePaisa: number
 }
 
+export interface LegFareBreakdown {
+  legIndex: number
+  fromZone: Zone
+  toZone: Zone
+  distanceKm: number
+  baseFareBDT: number
+  riderCount: number
+  discountPct: number
+  riderFareBDT: number
+  riderFarePaisa: number
+}
+
+export interface FareBreakdown {
+  requestId?: string
+  passengerName?: string
+  corridorId: string
+  corridorName: string
+  pickupZone: Zone
+  destinationZone: Zone
+  seats: number
+  legs: LegFareBreakdown[]
+  sharedLegsCount: number
+  soloLegsCount: number
+  sharedPortionBDT: number
+  soloPortionBDT: number
+  sharedPortionPaisa: number
+  soloPortionPaisa: number
+  totalDiscountBDT: number
+  totalDiscountPaisa: number
+  totalFareBDT: number
+  totalFarePaisa: number
+}
+
 export interface EstimateResponse {
   pickupZone: Zone
   dropoffZone: Zone
+  corridorId?: string
+  corridorName?: string
   distanceKm: number
   passengerCount: number
   perPersonFareBDT: number
   totalFareBDT: number
   discountPercentage: number
+  breakdown?: FareBreakdown
   poolOptions: PoolOption[]
   availablePoolsCount: number
 }
@@ -79,12 +130,15 @@ export interface RideRequest {
   id: string
   pickupZone: Zone
   destinationZone: Zone
+  corridorId?: string | null
   seats: number
   stage: RideStage
   totalFarePaisa: number
+  fareBreakdown?: FareBreakdown | null
   createdAt: string
   pool?: {
     id: string
+    corridorId?: string | null
     stage: string
     seatsTaken: number
     seatsCap: number
@@ -93,12 +147,17 @@ export interface RideRequest {
   fareSummary?: {
     totalFareBDT: number
     perPersonFareBDT: number
-    discountPercentage: number
+    sharedPortionBDT?: number
+    soloPortionBDT?: number
+    totalDiscountBDT?: number
+    corridorId?: string
+    corridorName?: string
   }
 }
 
 export interface ActivePool {
   id: string
+  corridorId?: string | null
   pickupZone: Zone
   stage: string
   seatsTaken: number
@@ -110,6 +169,7 @@ export interface ActivePool {
     destinationZone: Zone
     seats: number
     totalFarePaisa: number
+    fareBreakdown?: FareBreakdown | null
     passenger: { id: string; name: string; email: string }
   }>
 }
@@ -148,6 +208,11 @@ export async function apiRequestRide(body: { pickupZone: Zone; destinationZone: 
   return data
 }
 
+export async function apiCancelRide(rideId: string) {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest }>(`/rides/${rideId}/cancel`)
+  return data.ride
+}
+
 export async function apiGetMyRides() {
   const { data } = await apiClient.get<{ rides: RideRequest[] }>('/rides/my-rides')
   return data.rides
@@ -157,3 +222,111 @@ export async function apiGetActiveRides() {
   const { data } = await apiClient.get<ActiveRidesResponse>('/rides/active')
   return data
 }
+
+// ─── Shareable Rides (Browse) ─────────────────────────────────────────────────
+
+export interface ShareableRider {
+  destinationZone: Zone
+  seats: number
+}
+
+export interface ShareableRide {
+  poolId: string
+  pickupZone: Zone
+  stage: string
+  seatsTaken: number
+  seatsCap: number
+  seatsAvailable: number
+  riders: ShareableRider[]
+}
+
+export interface ShareableRidesResponse {
+  rides: ShareableRide[]
+}
+
+export async function apiGetShareableRides(search?: string): Promise<ShareableRide[]> {
+  const params = search ? { search } : {}
+  const { data } = await apiClient.get<{ rides: ShareableRide[] }>('/rides/shareable', { params })
+  return data.rides
+}
+
+export async function apiJoinPool(
+  poolId: string,
+  body: { destinationZone: Zone; seats: number }
+) {
+  const { data } = await apiClient.post<RideRequest>(`/rides/${poolId}/join`, body)
+  return data
+}
+
+export async function apiRequestRideWithShare(body: {
+  pickupZone: Zone
+  destinationZone: Zone
+  seats: number
+  openToShare: boolean
+  maxShareSeats?: number
+}) {
+  const { data } = await apiClient.post<RideRequest>('/rides/request', body)
+  return data
+}
+
+// ─── User Profiles & Reviews ─────────────────────────────────────────────────
+
+export interface DriverProfile {
+  id: string
+  name: string
+  role: 'DRIVER'
+  memberSince: string
+  tesla: { id: string; name: string; plate: string; capacity: number } | null
+  averageRating: number | null
+  reviewCount: number
+  totalCompletedRides: number
+}
+
+export interface PassengerProfile {
+  id: string
+  name: string
+  role: 'PASSENGER'
+  memberSince: string
+  totalRidesTaken: number
+}
+
+export type UserProfile = DriverProfile | PassengerProfile
+
+export interface Review {
+  id: string
+  rideRequestId: string
+  passengerId: string
+  driverId: string
+  rating: number
+  comment?: string | null
+  createdAt: string
+}
+
+export async function apiGetUserProfile(userId: string): Promise<UserProfile> {
+  const { data } = await apiClient.get<UserProfile>(`/users/${userId}/profile`)
+  return data
+}
+
+export async function apiSubmitReview(
+  rideRequestId: string,
+  body: { rating: number; comment?: string }
+): Promise<Review> {
+  const { data } = await apiClient.post<Review>(`/rides/${rideRequestId}/review`, body)
+  return data
+}
+
+export async function apiDriverAccept(poolId: string) {
+  const { data } = await apiClient.post(`/driver/${poolId}/accept`)
+  return data
+}
+
+export async function apiDriverArrived(poolId: string) {
+  const { data } = await apiClient.post(`/driver/${poolId}/arrived`)
+  return data
+}
+
+export async function apiDriverComplete(poolId: string) {
+  const { data } = await apiClient.post(`/driver/${poolId}/complete`)
+  return data
+}
+
