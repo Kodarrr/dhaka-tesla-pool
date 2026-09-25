@@ -128,6 +128,7 @@ export interface EstimateResponse {
 
 export interface RideRequest {
   id: string
+  passengerId: string
   pickupZone: Zone
   destinationZone: Zone
   corridorId?: string | null
@@ -136,13 +137,25 @@ export interface RideRequest {
   totalFarePaisa: number
   fareBreakdown?: FareBreakdown | null
   createdAt: string
+  review?: Review | null
   pool?: {
     id: string
     corridorId?: string | null
     stage: string
     seatsTaken: number
     seatsCap: number
-    tesla?: { name: string; plate: string } | null
+    tesla?: {
+      name: string
+      plate: string
+      driver?: { id: string; name: string } | null
+    } | null
+    rideRequests?: Array<{
+      id: string
+      passengerId: string
+      destinationZone: Zone
+      seats: number
+      passenger: { id: string; name: string }
+    }>
   } | null
   fareSummary?: {
     totalFareBDT: number
@@ -228,6 +241,7 @@ export async function apiGetActiveRides() {
 export interface ShareableRider {
   destinationZone: Zone
   seats: number
+  passenger?: { id: string; name: string } | null
 }
 
 export interface ShareableRide {

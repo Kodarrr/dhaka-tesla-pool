@@ -45,3 +45,4 @@ export default function StarRating({ rating, reviewCount, size = 'sm', className
     </span>
   )
 }
+

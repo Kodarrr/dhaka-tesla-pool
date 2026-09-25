@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { apiGetMyRides, apiCancelRide, apiSubmitReview } from '@/lib/api'
+import { apiGetMyRides, apiCancelRide, apiSubmitReview, apiGetUserProfile } from '@/lib/api'
 import { cn, formatBDT, formatDate, STAGE_META, ZONE_EMOJI } from '@/lib/utils'
-import type { RideRequest } from '@/lib/api'
+import type { RideRequest, DriverProfile } from '@/lib/api'
 import StarRating from '@/components/ui/star-rating'
 import { UserNameBadge } from '@/components/ui/user-profile-card'
 import {
@@ -26,16 +26,50 @@ import {
   MessageSquare,
 } from 'lucide-react'
 
+// ── DriverInfoBadge ─────────────────────────────────────────────────────────
+
+function DriverInfoBadge({
+  driverId,
+  driverName,
+  teslaInfo,
+}: {
+  driverId: string
+  driverName: string
+  teslaInfo?: string
+}) {
+  const [profile, setProfile] = useState<DriverProfile | null>(null)
+
+  useEffect(() => {
+    if (!driverId) return
+    apiGetUserProfile(driverId)
+      .then((p) => {
+        if (p.role === 'DRIVER') setProfile(p)
+      })
+      .catch(() => {})
+  }, [driverId])
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs py-1 px-2.5 rounded-lg bg-[#0a0e17]/50 border border-[#1f2d44]/40">
+      <Car className="w-3.5 h-3.5 text-[#00ff9d]" />
+      <span className="text-[#4d6080]">Driver:</span>
+      <UserNameBadge userId={driverId} name={driverName} className="font-semibold text-[#f0f4ff]" />
+      {profile && (
+        <StarRating rating={profile.averageRating} reviewCount={profile.reviewCount} size="sm" />
+      )}
+      {teslaInfo && <span className="text-[#4d6080]">({teslaInfo})</span>}
+    </div>
+  )
+}
+
 // ── ReviewPrompt ─────────────────────────────────────────────────────────────
 
 interface ReviewPromptProps {
   rideId: string
-  driverId: string
   driverName: string
-  onDone: () => void
+  onDone: (rating: number, comment?: string) => void
 }
 
-function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProps) {
+function ReviewPrompt({ rideId, driverName, onDone }: ReviewPromptProps) {
   const [selected, setSelected] = useState(0)
   const [hover, setHover] = useState(0)
   const [comment, setComment] = useState('')
@@ -50,7 +84,7 @@ function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProp
     try {
       await apiSubmitReview(rideId, { rating: selected, comment: comment || undefined })
       setSubmitted(selected)
-      setTimeout(onDone, 1500)
+      setTimeout(() => onDone(selected, comment || undefined), 1500)
     } catch (err: unknown) {
       const ae = err as { response?: { data?: { error?: string } } }
       setError(ae.response?.data?.error ?? 'Failed to submit review.')
@@ -75,8 +109,7 @@ function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProp
       <div className="flex items-center gap-2">
         <Star className="w-3.5 h-3.5 text-amber-400" />
         <p className="text-xs font-semibold text-[#8ba3c7]">
-          Rate your driver{' '}
-          <UserNameBadge userId={driverId} name={driverName} className="text-[#f0f4ff]" />
+          Rate your driver <span className="text-[#f0f4ff] font-semibold">{driverName}</span>
         </p>
       </div>
 
@@ -92,9 +125,11 @@ function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProp
             className="text-2xl transition-colors duration-100 leading-none"
             aria-label={`${n} star`}
           >
-            <span className={cn(
-              n <= (hover || selected) ? 'text-amber-400' : 'text-[#2a3650]'
-            )}>
+            <span
+              className={cn(
+                n <= (hover || selected) ? 'text-amber-400' : 'text-[#2a3650]'
+              )}
+            >
               ★
             </span>
           </button>
@@ -116,12 +151,15 @@ function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProp
           rows={2}
           className="w-full bg-[#0a0e17]/60 border border-[#1f2d44]/50 rounded-xl py-2 pl-8 pr-3 text-xs text-[#f0f4ff] placeholder-[#4d6080] focus:outline-none focus:border-[#00d4ff]/50 focus:ring-1 focus:ring-[#00d4ff]/20 resize-none transition-all"
         />
-        <span className="absolute right-2.5 bottom-2 text-[10px] text-[#4d6080]">{comment.length}/300</span>
+        <span className="absolute right-2.5 bottom-2 text-[10px] text-[#4d6080]">
+          {comment.length}/300
+        </span>
       </div>
 
       {error && (
         <p className="text-xs text-red-400 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />{error}
+          <AlertCircle className="w-3 h-3" />
+          {error}
         </p>
       )}
 
@@ -131,7 +169,11 @@ function ReviewPrompt({ rideId, driverId, driverName, onDone }: ReviewPromptProp
         disabled={!selected || submitting}
         className="btn-primary w-full py-2.5 text-sm disabled:opacity-50"
       >
-        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />}
+        {submitting ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Star className="w-4 h-4" />
+        )}
         Submit Review
       </button>
     </div>
@@ -148,8 +190,7 @@ export default function MyRides() {
   const [error, setError] = useState('')
   const [lastRefresh, setLast] = useState<Date | null>(null)
   const [expandedLegs, setExpandedLegs] = useState<Record<string, boolean>>({})
-  // Track which ride IDs have been reviewed this session (after submission)
-  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set())
+  const [localReviews, setLocalReviews] = useState<Record<string, { rating: number; comment?: string }>>({})
 
   const fetchRides = useCallback(async () => {
     if (!isAuthenticated) return
@@ -199,7 +240,9 @@ export default function MyRides() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Car className="w-4 h-4 text-[#00d4ff]" />
-          <h2 className="text-sm font-semibold text-[#f0f4ff] uppercase tracking-wider">My Ride Requests</h2>
+          <h2 className="text-sm font-semibold text-[#f0f4ff] uppercase tracking-wider">
+            My Ride Requests
+          </h2>
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
@@ -208,7 +251,11 @@ export default function MyRides() {
               {lastRefresh.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}
             </div>
           )}
-          <button onClick={fetchRides} disabled={loading} className="btn-secondary px-3 py-2 text-xs">
+          <button
+            onClick={fetchRides}
+            disabled={loading}
+            className="btn-secondary px-3 py-2 text-xs"
+          >
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
             {loading ? 'Loading…' : 'Refresh'}
           </button>
@@ -247,7 +294,9 @@ export default function MyRides() {
           {isAuthenticated ? (
             <>
               <p className="text-[#8ba3c7] font-medium">No rides yet</p>
-              <p className="text-sm text-[#4d6080] mt-1">Use the Request tab to book your first Tesla Pool ride</p>
+              <p className="text-sm text-[#4d6080] mt-1">
+                Use the Request tab to book your first Tesla Pool ride
+              </p>
             </>
           ) : (
             <>
@@ -273,10 +322,17 @@ export default function MyRides() {
             const isExpanded = Boolean(expandedLegs[ride.id])
             const canCancel = ['REQUESTED', 'MATCHED'].includes(ride.stage)
             const driverAssigned = ride.pool?.tesla
+            const driverUser = ride.pool?.tesla?.driver
+            const isMatchedOrLater = ['MATCHED', 'DRIVER_ARRIVED', 'COMPLETED'].includes(ride.stage)
             const isCompleted = ride.stage === 'COMPLETED'
-            // Show review prompt for completed rides that haven't been reviewed this session
-            // (We assume no review exists if the server hasn't told us otherwise — refreshing will clear it)
-            const showReviewPrompt = isCompleted && !reviewedIds.has(ride.id)
+            const existingReview = ride.review || localReviews[ride.id]
+            const showReviewPrompt = isCompleted && !existingReview
+
+            // Co-riders in the same pool (excluding current rider)
+            const coRiders =
+              ride.pool?.rideRequests?.filter(
+                (r) => r.id !== ride.id && r.passengerId !== ride.passengerId
+              ) ?? []
 
             return (
               <div
@@ -286,9 +342,13 @@ export default function MyRides() {
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-[#f0f4ff]">
-                      <span>{ZONE_EMOJI[ride.pickupZone] ?? '📍'} {ride.pickupZone}</span>
+                      <span>
+                        {ZONE_EMOJI[ride.pickupZone] ?? '📍'} {ride.pickupZone}
+                      </span>
                       <ChevronRight className="w-3.5 h-3.5 text-[#4d6080] shrink-0" />
-                      <span>{ZONE_EMOJI[ride.destinationZone] ?? '📍'} {ride.destinationZone}</span>
+                      <span>
+                        {ZONE_EMOJI[ride.destinationZone] ?? '📍'} {ride.destinationZone}
+                      </span>
                     </div>
                     {breakdown?.corridorName && (
                       <p className="text-xs text-[#00d4ff] flex items-center gap-1 mt-0.5 font-medium">
@@ -312,24 +372,40 @@ export default function MyRides() {
                   <span className="flex items-center gap-1 text-[#00d4ff] font-bold text-sm">
                     {formatBDT(fareBDT)}
                   </span>
-                  {driverAssigned && (
-                    <span className="flex items-center gap-1 text-[#00ff9d]">
-                      <Car className="w-3 h-3" />
-                      {driverAssigned.name} · {driverAssigned.plate}
-                    </span>
-                  )}
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {formatDate(ride.createdAt)}
                   </span>
                 </div>
 
-                {/* Driver profile badge for MATCHED+ rides */}
-                {driverAssigned && ride.pool?.tesla && ['MATCHED', 'DRIVER_ARRIVED', 'COMPLETED'].includes(ride.stage) && (
-                  <div className="mb-3 flex items-center gap-2 text-xs text-[#4d6080]">
-                    <Car className="w-3 h-3 text-[#00ff9d]" />
-                    <span>Driver:</span>
-                    <DriverBadgeInline teslaId={ride.pool.tesla.id ?? ''} />
+                {/* Assigned driver badge (CHANGE 6: name + star rating, clickable to full profile) */}
+                {isMatchedOrLater && driverAssigned && driverUser && (
+                  <div className="mb-3">
+                    <DriverInfoBadge
+                      driverId={driverUser.id}
+                      driverName={driverUser.name}
+                      teslaInfo={`${driverAssigned.name} · ${driverAssigned.plate}`}
+                    />
+                  </div>
+                )}
+
+                {/* Co-riders (CHANGE 6: show co-riders' names if pool has others) */}
+                {coRiders.length > 0 && (
+                  <div className="mb-3 flex items-center gap-2 text-xs text-[#8ba3c7] bg-[#0a0e17]/30 px-2.5 py-1.5 rounded-lg border border-[#1f2d44]/30">
+                    <Users className="w-3.5 h-3.5 text-[#00d4ff]" />
+                    <span className="text-[#4d6080]">Co-riders:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {coRiders.map((cr) => (
+                        <span key={cr.id} className="inline-flex items-center gap-1">
+                          <UserNameBadge
+                            userId={cr.passenger.id}
+                            name={cr.passenger.name}
+                            className="font-medium text-[#f0f4ff]"
+                          />
+                          <span className="text-[10px] text-[#4d6080]">({cr.seats}s → {cr.destinationZone})</span>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -339,11 +415,17 @@ export default function MyRides() {
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-3">
                         <span className="text-[#8ba3c7]">
-                          Shared: <strong className="text-[#00ff9d]">{formatBDT(breakdown.sharedPortionBDT)}</strong>
+                          Shared:{' '}
+                          <strong className="text-[#00ff9d]">
+                            {formatBDT(breakdown.sharedPortionBDT)}
+                          </strong>
                         </span>
                         {breakdown.soloPortionBDT > 0 && (
                           <span className="text-[#8ba3c7]">
-                            Solo: <strong className="text-[#f0f4ff]">{formatBDT(breakdown.soloPortionBDT)}</strong>
+                            Solo:{' '}
+                            <strong className="text-[#f0f4ff]">
+                              {formatBDT(breakdown.soloPortionBDT)}
+                            </strong>
                           </span>
                         )}
                         {breakdown.totalDiscountBDT > 0 && (
@@ -374,17 +456,27 @@ export default function MyRides() {
                               <span className="w-4 h-4 rounded-full bg-[#1c2740] text-[9px] flex items-center justify-center font-bold text-[#00d4ff]">
                                 {idx + 1}
                               </span>
-                              <span>{leg.fromZone} → {leg.toZone}</span>
+                              <span>
+                                {leg.fromZone} → {leg.toZone}
+                              </span>
                               <span className="text-[#4d6080]">({leg.distanceKm} km)</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className={cn(
-                                'px-1.5 rounded text-[10px] font-semibold',
-                                leg.discountPct > 0 ? 'bg-[#00ff9d]/15 text-[#00ff9d]' : 'bg-[#1c2740] text-[#8ba3c7]'
-                              )}>
-                                {leg.discountPct > 0 ? `-${leg.discountPct}% (${leg.riderCount} riders)` : 'Full (Solo)'}
+                              <span
+                                className={cn(
+                                  'px-1.5 rounded text-[10px] font-semibold',
+                                  leg.discountPct > 0
+                                    ? 'bg-[#00ff9d]/15 text-[#00ff9d]'
+                                    : 'bg-[#1c2740] text-[#8ba3c7]'
+                                )}
+                              >
+                                {leg.discountPct > 0
+                                  ? `-${leg.discountPct}% (${leg.riderCount} riders)`
+                                  : 'Full (Solo)'}
                               </span>
-                              <span className="font-semibold text-[#f0f4ff]">{formatBDT(leg.riderFareBDT)}</span>
+                              <span className="font-semibold text-[#f0f4ff]">
+                                {formatBDT(leg.riderFareBDT)}
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -431,11 +523,35 @@ export default function MyRides() {
                   )}
                 </div>
 
-                {/* Review prompt for completed rides */}
-                {showReviewPrompt && driverAssigned && ride.pool?.tesla && (
-                  <DriverReviewSection
-                    ride={ride}
-                    onReviewed={() => setReviewedIds((s) => new Set([...s, ride.id]))}
+                {/* Submitted review display (CHANGE 7: show submitted rating instead of input) */}
+                {existingReview && (
+                  <div className="mt-3 pt-2.5 border-t border-[#1f2d44]/30 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Star className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-[#8ba3c7]">Your Review:</span>
+                      <span className="text-amber-400 font-semibold tracking-tight">
+                        {'★'.repeat(existingReview.rating)}
+                        {'☆'.repeat(5 - existingReview.rating)}
+                      </span>
+                      <span className="text-xs font-bold text-[#f0f4ff]">{existingReview.rating}/5</span>
+                      {existingReview.comment && (
+                        <span className="text-[#4d6080] italic ml-1">&ldquo;{existingReview.comment}&rdquo;</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-[#00ff9d] bg-[#00ff9d]/10 px-2 py-0.5 rounded-full border border-[#00ff9d]/20">
+                      Reviewed ✓
+                    </span>
+                  </div>
+                )}
+
+                {/* Review prompt for completed rides without a review (CHANGE 7) */}
+                {showReviewPrompt && driverAssigned && (
+                  <ReviewPrompt
+                    rideId={ride.id}
+                    driverName={driverUser?.name ?? driverAssigned.name}
+                    onDone={(rating, comment) =>
+                      setLocalReviews((prev) => ({ ...prev, [ride.id]: { rating, comment } }))
+                    }
                   />
                 )}
               </div>
@@ -453,29 +569,3 @@ export default function MyRides() {
   )
 }
 
-// ── DriverBadgeInline: fetch driver name+rating from teslaId via workaround ──
-// The ride currently only exposes tesla {name, plate} in pool, not driverId.
-// We embed a small clickable badge using tesla name + plate only (no profile modal).
-// If we later expose driverId on the ride response we can add UserNameBadge here.
-function DriverBadgeInline({ teslaId: _ }: { teslaId: string }) {
-  // For now just render the placeholder — driverId is not surfaced on RideRequest.pool
-  return null
-}
-
-// ── DriverReviewSection ───────────────────────────────────────────────────────
-// The review endpoint derives driverId server-side, so we don't need it client-side.
-// We just need the ride ID.
-function DriverReviewSection({ ride, onReviewed }: { ride: RideRequest; onReviewed: () => void }) {
-  const driverName = ride.pool?.tesla?.name ?? 'your driver'
-  // driverId not in RideRequest type; pass empty string — profile modal not shown for driver from here
-  const driverId = ''
-
-  return (
-    <ReviewPrompt
-      rideId={ride.id}
-      driverId={driverId}
-      driverName={driverName}
-      onDone={onReviewed}
-    />
-  )
-}

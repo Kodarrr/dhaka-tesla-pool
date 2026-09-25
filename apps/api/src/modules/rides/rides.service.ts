@@ -539,7 +539,13 @@ export async function listShareableRides(search?: string) {
     include: {
       rideRequests: {
         where: { stage: { notIn: ['CANCELLED'] } },
-        select: { destinationZone: true, seats: true },
+        select: {
+          destinationZone: true,
+          seats: true,
+          passenger: {
+            select: { id: true, name: true },
+          },
+        },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -558,6 +564,7 @@ export async function listShareableRides(search?: string) {
       riders: p.rideRequests.map((r) => ({
         destinationZone: r.destinationZone,
         seats: r.seats,
+        passenger: r.passenger,
       })),
     }));
 }
@@ -665,9 +672,28 @@ export async function getMyRides(passengerId: string) {
     where: { passengerId },
     orderBy: { createdAt: 'desc' },
     include: {
+      review: true,
       pool: {
         include: {
-          tesla: true,
+          tesla: {
+            include: {
+              driver: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+          rideRequests: {
+            where: { stage: { notIn: ['CANCELLED'] } },
+            select: {
+              id: true,
+              passengerId: true,
+              destinationZone: true,
+              seats: true,
+              passenger: {
+                select: { id: true, name: true },
+              },
+            },
+          },
         },
       },
     },
@@ -677,7 +703,7 @@ export async function getMyRides(passengerId: string) {
 export async function getActiveRides() {
   const activePools = await prisma.pool.findMany({
     where: {
-      stage: { in: ['REQUESTED', 'MATCHED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
     },
     include: {
       rideRequests: {
@@ -698,7 +724,7 @@ export async function getActiveRides() {
 
   const activeRequests = await prisma.rideRequest.findMany({
     where: {
-      stage: { in: ['REQUESTED', 'MATCHED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
     },
     include: {
       passenger: {

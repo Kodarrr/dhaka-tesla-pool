@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context'
 import { apiGetShareableRides, apiJoinPool, ZONES } from '@/lib/api'
 import { cn, formatBDT, ZONE_EMOJI } from '@/lib/utils'
 import type { ShareableRide, Zone } from '@/lib/api'
+import { UserNameBadge } from '@/components/ui/user-profile-card'
 import {
   Search,
   MapPin,
@@ -167,15 +168,22 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
             </span>
           </div>
           {/* Existing rider destinations */}
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {pool.riders.map((r, i) => (
               <span
                 key={i}
-                className="text-xs px-2 py-0.5 rounded-full bg-[#1c2740] border border-[#1f2d44]/60 text-[#8ba3c7]"
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-[#1c2740] border border-[#1f2d44]/60 text-[#8ba3c7]"
               >
-                → {ZONE_EMOJI[r.destinationZone as Zone]} {r.destinationZone}
+                {r.passenger && (
+                  <UserNameBadge
+                    userId={r.passenger.id}
+                    name={r.passenger.name}
+                    className="text-[#f0f4ff] font-medium"
+                  />
+                )}
+                <span>→ {ZONE_EMOJI[r.destinationZone as Zone]} {r.destinationZone}</span>
                 {r.seats > 1 && (
-                  <span className="text-[#4d6080] ml-1">×{r.seats}</span>
+                  <span className="text-[#4d6080]">×{r.seats}</span>
                 )}
               </span>
             ))}

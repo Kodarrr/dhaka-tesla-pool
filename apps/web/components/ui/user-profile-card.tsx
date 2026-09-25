@@ -7,7 +7,7 @@ import StarRating from '@/components/ui/star-rating'
 import type { UserProfile } from '@/lib/api'
 import { User, Car, Calendar, CheckCircle2, Loader2, X } from 'lucide-react'
 
-// ── Inline mini-badge (shows name + stars, click to open modal) ──────────────
+// ── Inline mini-badge (shows name, click to open modal) ──────────────────────
 
 interface UserNameBadgeProps {
   userId: string
@@ -22,7 +22,10 @@ export function UserNameBadge({ userId, name, className }: UserNameBadgeProps) {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
         className={cn(
           'underline decoration-dotted underline-offset-2 decoration-[#4d6080] hover:text-[#00d4ff] hover:decoration-[#00d4ff] transition-colors duration-150 cursor-pointer',
           className
@@ -39,7 +42,7 @@ export function UserNameBadge({ userId, name, className }: UserNameBadgeProps) {
 
 // ── Modal wrapper ────────────────────────────────────────────────────────────
 
-function UserProfileModal({ userId, onClose }: { userId: string; onClose: () => void }) {
+export function UserProfileModal({ userId, onClose }: { userId: string; onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -79,7 +82,9 @@ export default function UserProfileCard({ userId, onClose }: UserProfileCardProp
     }
   }, [userId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   return (
     <div className="glass-card p-5 space-y-4">
@@ -181,3 +186,4 @@ export default function UserProfileCard({ userId, onClose }: UserProfileCardProp
     </div>
   )
 }
+
