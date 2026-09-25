@@ -61,7 +61,7 @@ export default function FareEstimator() {
       const ae = err as { response?: { data?: { message?: string } } }
       setError(
         ae.response?.data?.message ??
-          'Failed to get fare estimate. Please check if a straight-line corridor connects these zones.'
+          'Failed to get fare estimate. Please try again.'
       )
     } finally {
       setLoading(false)

@@ -515,6 +515,12 @@ export default function MyRides() {
                         {breakdown.corridorName}
                       </p>
                     )}
+                    {ride.pool?.currentLocation && (
+                      <p className="text-xs text-[#00d4ff] flex items-center gap-1 mt-0.5 font-medium">
+                        <Navigation className="w-3 h-3" />
+                        <span>Vehicle at: <span className="text-white font-semibold">{ZONE_EMOJI[ride.pool.currentLocation]} {ride.pool.currentLocation}</span></span>
+                      </p>
+                    )}
                   </div>
                   <div
                     className={cn(

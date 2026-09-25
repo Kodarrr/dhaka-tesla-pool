@@ -1,3 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String              @id @default(uuid())
+  name                 String
+  email                String              @unique
+  passwordHash         String
+  role                 Role
+  createdAt            DateTime            @default(now())
+  teslaPayBalancePaisa Int                 @default(50000)
+  notifications        Notification[]
+  reviewsReceived      Review[]            @relation("DriverReviews")
+  reviewsGiven         Review[]            @relation("PassengerReviews")
+  rideRequests         RideRequest[]
+  tesla                Tesla?
+  walletTransactions   WalletTransaction[]
+}
+
+model Tesla {
+  id        String   @id @default(uuid())
+  driverId  String   @unique
+  name      String
+  plate     String   @unique
+  capacity  Int
+  isOnline  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  pools     Pool[]
+  driver    User     @relation(fields: [driverId], references: [id])
+}
+
+model Pool {
+  id              String        @id @default(uuid())
+  teslaId         String?
+  pickupZone      String
+  currentLocation String?
+  stage           Stage         @default(REQUESTED)
+  seatsCap        Int
+  seatsTaken      Int           @default(0)
+  createdAt       DateTime      @default(now())
+  matchedAt       DateTime?
+  arrivedAt       DateTime?
+  completedAt     DateTime?
+  corridorId      String?
+  shareable       Boolean       @default(false)
+  tesla           Tesla?        @relation(fields: [teslaId], references: [id])
+  rideRequests    RideRequest[]
+
+  @@index([stage])
+  @@index([corridorId])
+  @@index([shareable, stage, pickupZone])
+}
+
+model RideRequest {
+  id                  String         @id @default(uuid())
+  passengerId         String
+  poolId              String?
+  pickupZone          String
+  destinationZone     String
+  seats               Int
+  stage               Stage          @default(REQUESTED)
+  baseFarePaisa       Int
+  distanceChargePaisa Int
+  poolDiscountPaisa   Int            @default(0)
+  totalFarePaisa      Int
+  createdAt           DateTime       @default(now())
+  cancelledAt         DateTime?
+  corridorId          String?
+  fareBreakdown       Json?
+  openToShare         Boolean        @default(false)
+  maxShareSeats       Int            @default(0)
+  paymentMethod       PaymentMethod?
+  paymentStatus       PaymentStatus  @default(UNPAID)
+  paidAt              DateTime?
+  review              Review?
+  passenger           User           @relation(fields: [passengerId], references: [id])
+  pool                Pool?          @relation(fields: [poolId], references: [id])
+
+  @@index([passengerId])
+  @@index([poolId])
+}
+
+model Review {
+  id            String      @id @default(uuid())
+  rideRequestId String      @unique
+  passengerId   String
+  driverId      String
+  rating        Int
+  comment       String?
+  createdAt     DateTime    @default(now())
+  driver        User        @relation("DriverReviews", fields: [driverId], references: [id])
+  passenger     User        @relation("PassengerReviews", fields: [passengerId], references: [id])
+  rideRequest   RideRequest @relation(fields: [rideRequestId], references: [id])
+
+  @@index([driverId])
+}
+
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  type          String
+  message       String
+  rideRequestId String?
+  poolId        String?
+  read          Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, read])
+}
+
+model WalletTransaction {
+  id            String   @id @default(uuid())
+  userId        String
+  amountPaisa   Int
+  type          String
+  rideRequestId String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
 enum Role {
   PASSENGER
   DRIVER
@@ -7,126 +136,20 @@ enum Stage {
   REQUESTED
   MATCHED
   DRIVER_ARRIVED
-  IN_PROGRESS
-  ARRIVED_AT_DESTINATION
   COMPLETED
   CANCELLED
+  IN_PROGRESS
+  ARRIVED_AT_DESTINATION
 }
 
 enum PaymentMethod {
-  TESLA_PAY
+  TESLAPAY
   CASH
 }
 
 enum PaymentStatus {
-  PENDING
+  UNPAID
+  PENDING_CONFIRMATION
   PAID
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
-}
-
-model User {
-  id           String        @id @default(uuid())
-  name         String
-  email        String        @unique
-  passwordHash String
-  role         Role
-  createdAt    DateTime      @default(now())
-
-  tesla           Tesla?
-  rideRequests    RideRequest[]
-  reviewsGiven    Review[] @relation("PassengerReviews")
-  reviewsReceived Review[] @relation("DriverReviews")
-}
-
-model Tesla {
-  id        String   @id @default(uuid())
-  driverId  String   @unique
-  driver    User     @relation(fields: [driverId], references: [id])
-  name      String
-  plate     String   @unique
-  capacity  Int
-  isOnline  Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  pools Pool[]
-}
-
-// One Pool = one Tesla trip. It may start with no teslaId (open,
-// waiting for a driver to accept) and gains one on MATCHED.
-model Pool {
-  id          String   @id @default(uuid())
-  teslaId     String?
-  tesla       Tesla?   @relation(fields: [teslaId], references: [id])
-  corridorId  String?
-  pickupZone  String
-  stage       Stage    @default(REQUESTED)
-  // Private pools (shareable=false) are never returned by available-shares.
-  shareable   Boolean  @default(false)
-  seatsCap    Int
-  seatsTaken  Int      @default(0)
-  createdAt   DateTime @default(now())
-  matchedAt   DateTime?
-  arrivedAt   DateTime?
-  completedAt DateTime?
-
-  rideRequests RideRequest[]
-
-  @@index([stage])
-  @@index([corridorId])
-  @@index([shareable, stage, pickupZone])
-}
-
-model RideRequest {
-  id              String    @id @default(uuid())
-  passengerId     String
-  passenger       User      @relation(fields: [passengerId], references: [id])
-  poolId          String?
-  pool            Pool?     @relation(fields: [poolId], references: [id])
-  corridorId      String?
-  pickupZone      String
-  destinationZone String
-  seats           Int
-  openToShare     Boolean   @default(false)
-  maxShareSeats   Int       @default(0)
-  stage           Stage     @default(REQUESTED)
-  paymentMethod   PaymentMethod @default(TESLA_PAY)
-  paymentStatus   PaymentStatus @default(PENDING)
-
-  // Fare stored in integer paisa (1 taka = 100 paisa) to avoid float rounding
-  baseFarePaisa       Int
-  distanceChargePaisa Int
-  poolDiscountPaisa   Int      @default(0)
-  totalFarePaisa      Int
-  fareBreakdown       Json?
-
-  createdAt   DateTime  @default(now())
-  cancelledAt DateTime?
-
-  review Review?
-
-  @@index([passengerId])
-  @@index([poolId])
-}
-
-model Review {
-  id            String      @id @default(uuid())
-  rideRequestId String      @unique
-  rideRequest   RideRequest @relation(fields: [rideRequestId], references: [id])
-  passengerId   String
-  passenger     User        @relation("PassengerReviews", fields: [passengerId], references: [id])
-  driverId      String
-  driver        User        @relation("DriverReviews", fields: [driverId], references: [id])
-  rating        Int         // 1-5, enforced at the API layer
-  comment       String?
-  createdAt     DateTime    @default(now())
-
-  @@index([driverId])
-}

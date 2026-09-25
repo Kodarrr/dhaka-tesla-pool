@@ -60,6 +60,20 @@ export const ZONES: Zone[] = [
   'BASHUNDHARA',
 ]
 
+export const DISTANCE_MATRIX: Record<Zone, Record<Zone, number>> = {
+  GULSHAN:     { GULSHAN: 0, BANANI: 3, MOHAKHALI: 1, DHANMONDI: 10, UTTARA: 12, MOTIJHEEL: 11, BASHUNDHARA: 5 },
+  BANANI:      { GULSHAN: 3, BANANI: 0, MOHAKHALI: 2, DHANMONDI: 10, UTTARA: 10, MOTIJHEEL: 13, BASHUNDHARA: 6 },
+  MOHAKHALI:   { GULSHAN: 1, BANANI: 2, MOHAKHALI: 0, DHANMONDI: 8,  UTTARA: 12, MOTIJHEEL: 9,  BASHUNDHARA: 7 },
+  DHANMONDI:   { GULSHAN: 10, BANANI: 10, MOHAKHALI: 8, DHANMONDI: 0, UTTARA: 18, MOTIJHEEL: 6, BASHUNDHARA: 15 },
+  UTTARA:      { GULSHAN: 12, BANANI: 10, MOHAKHALI: 12, DHANMONDI: 18, UTTARA: 0, MOTIJHEEL: 20, BASHUNDHARA: 8 },
+  MOTIJHEEL:   { GULSHAN: 11, BANANI: 13, MOHAKHALI: 9, DHANMONDI: 6, UTTARA: 20, MOTIJHEEL: 0, BASHUNDHARA: 14 },
+  BASHUNDHARA: { GULSHAN: 5, BANANI: 6, MOHAKHALI: 7, DHANMONDI: 15, UTTARA: 8, MOTIJHEEL: 14, BASHUNDHARA: 0 },
+}
+
+export function getDistance(pickup: Zone, destination: Zone): number {
+  return DISTANCE_MATRIX[pickup]?.[destination] ?? 10
+}
+
 export type RideStage =
   | 'REQUESTED' | 'MATCHED' | 'DRIVER_ARRIVED'
   | 'IN_PROGRESS' | 'ARRIVED_AT_DESTINATION'
@@ -149,6 +163,8 @@ export interface RideRequest {
   pool?: {
     id: string
     corridorId?: string | null
+    pickupZone?: Zone
+    currentLocation?: Zone
     stage: string
     seatsTaken: number
     seatsCap: number
@@ -183,6 +199,7 @@ export interface ActivePool {
   id: string
   corridorId?: string | null
   pickupZone: Zone
+  currentLocation?: Zone
   stage: string
   seatsTaken: number
   seatsCap: number
@@ -266,6 +283,7 @@ export interface ShareableRider {
 export interface ShareableRide {
   poolId: string
   pickupZone: Zone
+  currentLocation?: Zone
   stage: string
   seatsTaken: number
   seatsCap: number
@@ -285,7 +303,7 @@ export async function apiGetShareableRides(search?: string): Promise<ShareableRi
 
 export async function apiJoinPool(
   poolId: string,
-  body: { destinationZone: Zone; seats: number; paymentMethod?: PaymentMethod }
+  body: { pickupZone?: Zone; destinationZone: Zone; seats: number; paymentMethod?: PaymentMethod }
 ) {
   const { data } = await apiClient.post<RideRequest>(`/rides/${poolId}/join`, body)
   return data

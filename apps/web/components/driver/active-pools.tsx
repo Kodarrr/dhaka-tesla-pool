@@ -247,9 +247,9 @@ export default function ActivePools() {
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
                     <div className="flex items-center gap-2 text-sm font-bold text-[#f0f4ff]">
-                      <MapPin className="w-4 h-4 text-[#00ff9d] shrink-0" />
-                      <span>{ZONE_EMOJI[pool.pickupZone] ?? '📍'} {pool.pickupZone}</span>
-                      <span className="text-[#4d6080] font-normal text-xs">pickup zone</span>
+                      <Navigation className="w-4 h-4 text-[#00d4ff] shrink-0" />
+                      <span>Current: {ZONE_EMOJI[pool.currentLocation ?? pool.pickupZone]} {pool.currentLocation ?? pool.pickupZone}</span>
+                      <span className="text-[#4d6080] font-normal text-xs">(Origin: {pool.pickupZone})</span>
                     </div>
                     {corridorName && (
                       <div className="flex items-center gap-1 text-xs text-[#00d4ff] mt-1 font-medium">
@@ -360,7 +360,9 @@ export default function ActivePools() {
                             <div className="text-xs font-bold text-[#00d4ff]">
                               {formatBDT(fareBDT)}
                             </div>
-                            <div className="text-[10px] text-[#00ff9d]">Prepaid</div>
+                            <div className={cn('text-[10px] font-medium', isPassengerCompleted ? 'text-[#00ff9d]' : 'text-[#8ba3c7]')}>
+                              {isPassengerCompleted ? 'Paid' : 'Due on exit'}
+                            </div>
                           </div>
                         </div>
                       )

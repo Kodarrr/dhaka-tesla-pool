@@ -5,6 +5,8 @@ import {
   calculateCorridorPoolFares,
   calculateSoloCorridorFare,
   RiderFareBreakdown,
+  PER_KM_RATE_BDT,
+  POOL_DISCOUNT_PCT,
 } from '../../config/fare.js';
 import {
   Zone,
@@ -13,6 +15,7 @@ import {
   findCorridorForRoute,
   findCorridorById,
   findCorridorForRiders,
+  getDistance,
 } from '../../config/zones.js';
 import {
   EstimateRideInput,
@@ -41,16 +44,21 @@ export async function estimateRide(input: EstimateRideInput) {
   const dropoffZone = (input.dropoffZone || input.destinationZone) as Zone;
   const passengerCount = input.passengerCount ?? input.seats ?? 1;
 
-  const corridor = findCorridorForRoute(pickupZone, dropoffZone);
-  if (!corridor) {
-    throw new RideError(
-      400,
-      `No straight-line corridor route available connecting ${pickupZone} to ${dropoffZone}`
-    );
+  if (pickupZone === dropoffZone) {
+    throw new RideError(400, 'Pickup and destination cannot be the same zone');
   }
 
+  const corridor = findCorridorForRoute(pickupZone, dropoffZone);
   const fareResult = calculateFare(pickupZone, dropoffZone, passengerCount);
-  const solo = calculateSoloCorridorFare(pickupZone, dropoffZone, passengerCount);
+
+  let solo: RiderFareBreakdown | undefined;
+  if (corridor) {
+    try {
+      solo = calculateSoloCorridorFare(pickupZone, dropoffZone, passengerCount);
+    } catch {
+      // fallback
+    }
+  }
 
   const poolOptions = [1, 2, 3].map((count) => {
     const f = calculateFare(pickupZone, dropoffZone, count);
@@ -63,18 +71,50 @@ export async function estimateRide(input: EstimateRideInput) {
     };
   });
 
+  const fallbackBreakdown: RiderFareBreakdown = {
+    requestId: 'estimate',
+    pickupZone,
+    destinationZone: dropoffZone,
+    corridorId: corridor?.id ?? 'CITY_ROUTE',
+    corridorName: corridor?.name ?? `${pickupZone} → ${dropoffZone}`,
+    seats: passengerCount,
+    legs: [
+      {
+        legIndex: 0,
+        fromZone: pickupZone,
+        toZone: dropoffZone,
+        distanceKm: fareResult.distanceKm,
+        baseFareBDT: fareResult.rawFareBDT,
+        riderCount: passengerCount,
+        discountPct: fareResult.discountPercentage,
+        riderFareBDT: fareResult.totalFareBDT,
+        riderFarePaisa: fareResult.totalFarePaisa,
+      },
+    ],
+    sharedLegsCount: passengerCount > 1 ? 1 : 0,
+    soloLegsCount: passengerCount > 1 ? 0 : 1,
+    sharedPortionBDT: passengerCount > 1 ? fareResult.totalFareBDT : 0,
+    soloPortionBDT: passengerCount > 1 ? 0 : fareResult.totalFareBDT,
+    sharedPortionPaisa: (passengerCount > 1 ? fareResult.totalFareBDT : 0) * 100,
+    soloPortionPaisa: (passengerCount > 1 ? 0 : fareResult.totalFareBDT) * 100,
+    totalDiscountBDT: Math.round(fareResult.poolDiscountPaisa / 100),
+    totalDiscountPaisa: fareResult.poolDiscountPaisa,
+    totalFareBDT: fareResult.totalFareBDT,
+    totalFarePaisa: fareResult.totalFarePaisa,
+  };
+
   return {
     pickupZone,
     dropoffZone,
-    corridorId: corridor.id,
-    corridorName: corridor.name,
+    corridorId: corridor?.id ?? null,
+    corridorName: corridor?.name ?? `${pickupZone} → ${dropoffZone}`,
     distanceKm: fareResult.distanceKm,
     passengerCount,
     perPersonFareBDT: fareResult.perPersonFareBDT,
     totalFareBDT: fareResult.totalFareBDT,
     discountPercentage: fareResult.discountPercentage,
     fareDetails: fareResult,
-    breakdown: fareResult.breakdown ?? solo,
+    breakdown: fareResult.breakdown ?? solo ?? fallbackBreakdown,
     poolOptions,
   };
 }
@@ -86,6 +126,10 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
   const openToShare = input.openToShare ?? false;
   const maxShareSeats = openToShare ? (input.maxShareSeats ?? 0) : 0;
   const seatsCap = Math.min(3, seats + maxShareSeats);
+
+  if (pickupZone === destinationZone) {
+    throw new RideError(400, 'Pickup and destination cannot be the same zone');
+  }
 
   const activeRide = await prisma.rideRequest.findFirst({
     where: {
@@ -99,20 +143,14 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
   }
 
   const matchingCorridors = findCorridorsForRoute(pickupZone, destinationZone);
-  if (matchingCorridors.length === 0) {
-    throw new RideError(
-      400,
-      `No straight-line corridor route available connecting ${pickupZone} to ${destinationZone}`
-    );
-  }
-
-  const assignedCorridor = matchingCorridors[0];
+  const assignedCorridor = matchingCorridors[0] ?? null;
 
   return prisma.$transaction(async (tx) => {
     const newPool = await tx.pool.create({
       data: {
         pickupZone,
-        corridorId: assignedCorridor.id,
+        currentLocation: pickupZone,
+        corridorId: assignedCorridor?.id ?? null,
         shareable: openToShare,
         seatsCap,
         seatsTaken: 0,
@@ -122,25 +160,62 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
 
     await tx.$queryRaw`SELECT id FROM "Pool" WHERE id = ${newPool.id} FOR UPDATE`;
 
-    const calculation = calculateCorridorPoolFares({
-      corridor: assignedCorridor,
-      pickupZone,
-      riders: [
-        {
-          requestId: 'new_request',
-          pickupZone,
-          destinationZone,
-          seats,
-        },
-      ],
-    });
+    let newRiderFare: RiderFareBreakdown;
 
-    const newRiderFare = calculation.riders['new_request'];
+    if (assignedCorridor) {
+      const calculation = calculateCorridorPoolFares({
+        corridor: assignedCorridor,
+        pickupZone,
+        riders: [
+          {
+            requestId: 'new_request',
+            pickupZone,
+            destinationZone,
+            seats,
+          },
+        ],
+      });
+      newRiderFare = calculation.riders['new_request'];
+    } else {
+      const fare = calculateFare(pickupZone, destinationZone, seats);
+      newRiderFare = {
+        requestId: 'new_request',
+        pickupZone,
+        destinationZone,
+        corridorId: 'CITY_ROUTE',
+        corridorName: `${pickupZone} → ${destinationZone}`,
+        seats,
+        legs: [
+          {
+            legIndex: 0,
+            fromZone: pickupZone,
+            toZone: destinationZone,
+            distanceKm: fare.distanceKm,
+            baseFareBDT: fare.rawFareBDT,
+            riderCount: 1,
+            discountPct: 0,
+            riderFareBDT: fare.totalFareBDT,
+            riderFarePaisa: fare.totalFarePaisa,
+          },
+        ],
+        sharedLegsCount: 0,
+        soloLegsCount: 1,
+        sharedPortionBDT: 0,
+        soloPortionBDT: fare.totalFareBDT,
+        sharedPortionPaisa: 0,
+        soloPortionPaisa: fare.totalFarePaisa,
+        totalDiscountBDT: 0,
+        totalDiscountPaisa: 0,
+        totalFareBDT: fare.totalFareBDT,
+        totalFarePaisa: fare.totalFarePaisa,
+      };
+    }
+
     const newRide = await tx.rideRequest.create({
       data: {
         passengerId,
         poolId: newPool.id,
-        corridorId: assignedCorridor.id,
+        corridorId: assignedCorridor?.id ?? null,
         pickupZone,
         destinationZone,
         seats,
@@ -177,8 +252,8 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
         sharedPortionBDT: newRiderFare.sharedPortionBDT,
         soloPortionBDT: newRiderFare.soloPortionBDT,
         totalDiscountBDT: newRiderFare.totalDiscountBDT,
-        corridorId: assignedCorridor.id,
-        corridorName: assignedCorridor.name,
+        corridorId: assignedCorridor?.id ?? null,
+        corridorName: assignedCorridor?.name ?? `${pickupZone} → ${destinationZone}`,
       },
     };
   });
@@ -359,6 +434,7 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       seatsTaken: number;
       corridorId: string | null;
       pickupZone: string;
+      currentLocation: string | null;
       shareable: boolean;
       stage: string;
     } | undefined;
@@ -371,10 +447,11 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
           seatsTaken: number;
           corridorId: string | null;
           pickupZone: string;
+          currentLocation: string | null;
           shareable: boolean;
           stage: string;
         }>
-      >`SELECT id, "seatsCap", "seatsTaken", "corridorId", "pickupZone", shareable, stage
+      >`SELECT id, "seatsCap", "seatsTaken", "corridorId", "pickupZone", "currentLocation", shareable, stage
         FROM "Pool" WHERE id = ${poolId} FOR UPDATE`;
       locked = lockedRows?.[0];
     } catch {
@@ -386,6 +463,7 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
           seatsTaken: true,
           corridorId: true,
           pickupZone: true,
+          currentLocation: true,
           shareable: true,
           stage: true,
         },
@@ -397,8 +475,8 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       throw new RideError(404, 'Ride not found');
     }
 
-    if (locked.stage === 'STARTED' || locked.stage === 'COMPLETED' || locked.stage === 'ARRIVED_AT_DESTINATION') {
-      throw new RideError(409, 'This ride has already started');
+    if (locked.stage === 'ARRIVED_AT_DESTINATION' || locked.stage === 'COMPLETED' || locked.stage === 'CANCELLED') {
+      throw new RideError(409, 'This ride cannot be joined as it is finishing or completed');
     }
 
     // Strict atomic concurrency check
@@ -413,62 +491,66 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       },
     });
 
-    const eligibility = evaluateShareCandidate(
-      {
-        id: locked.id,
-        shareable: locked.shareable,
-        pickupZone: locked.pickupZone,
-        corridorId: locked.corridorId,
-        stage: locked.stage,
-        seatsTaken: locked.seatsTaken,
-        seatsCap: locked.seatsCap,
-        existingDestinations: existingRequests.map((r) => r.destinationZone),
-        memberPassengerIds: existingRequests.map((r) => r.passengerId),
-      },
-      {
-        pickupZone: locked.pickupZone as Zone,
-        destinationZone,
-        seats,
-        passengerId,
-      }
-    );
-
-    // corridor_incompatible is now allowed — only hard-reject shareable/stage/capacity/member failures.
-    if (!eligibility.eligible && eligibility.reason !== 'corridor_incompatible') {
-      if (eligibility.reason === 'no_capacity') {
-        throw new RideError(409, 'No available seats remaining in this pool', 'POOL_FULL');
-      }
-      if (eligibility.reason === 'not_shareable') {
-        throw new RideError(409, 'This ride is not open to share');
-      }
-      if (eligibility.reason === 'stage_closed') {
-        throw new RideError(409, 'This ride has already started');
-      }
-      if (eligibility.reason === 'already_a_member') {
-        throw new RideError(409, 'You are already on this ride');
-      }
-      throw new RideError(409, 'This ride cannot be joined');
+    if (existingRequests.some((r) => r.passengerId === passengerId)) {
+      throw new RideError(409, 'You are already on this ride');
     }
 
-    const pickupZone = locked.pickupZone as Zone;
+    // Determine pickup zone: input source takes precedence, then pool currentLocation, then pool pickupZone
+    const joinerPickup = (input.pickupZone || input.sourceZone || locked.currentLocation || locked.pickupZone) as Zone;
 
-    // Try to find a common corridor covering ALL destinations (existing riders + new joiner).
-    // If a common corridor exists: apply pooled leg-discount logic for everyone.
-    // If not: the new joiner pays solo fare on their own route; existing riders are unchanged.
-    const allDestinations = [
-      ...existingRequests.map((r) => r.destinationZone as Zone),
+    if (joinerPickup === destinationZone) {
+      throw new RideError(400, 'Pickup and destination cannot be the same zone');
+    }
+
+    // Fare calculation: "only that part will be the fare will be shared"
+    const distanceKm = getDistance(joinerPickup, destinationZone);
+    const soloFareBDT = distanceKm * PER_KM_RATE_BDT;
+    const discountMultiplier = 1 - POOL_DISCOUNT_PCT; // 30% discount
+    const perPersonFareBDT = Math.round(soloFareBDT * discountMultiplier);
+    const totalFareBDT = perPersonFareBDT * seats;
+    const totalFarePaisa = totalFareBDT * 100;
+    const discountAmountBDT = (soloFareBDT * seats) - totalFareBDT;
+    const poolDiscountPaisa = discountAmountBDT * 100;
+    const distanceChargePaisa = soloFareBDT * seats * 100;
+
+    const newRiderFare: RiderFareBreakdown = {
+      requestId: 'new_request',
+      pickupZone: joinerPickup,
       destinationZone,
-    ];
-    const commonCorridor = findCorridorForRiders(pickupZone, allDestinations);
-
-    const newRequestCorridorId = commonCorridor?.id ?? locked.corridorId ?? null;
+      corridorId: locked.corridorId ?? 'SHARED_POOL',
+      corridorName: `${joinerPickup} → ${destinationZone}`,
+      seats,
+      legs: [
+        {
+          legIndex: 0,
+          fromZone: joinerPickup,
+          toZone: destinationZone,
+          distanceKm,
+          baseFareBDT: soloFareBDT * seats,
+          riderCount: 2,
+          discountPct: 30,
+          riderFareBDT: totalFareBDT,
+          riderFarePaisa: totalFarePaisa,
+        },
+      ],
+      sharedLegsCount: 1,
+      soloLegsCount: 0,
+      sharedPortionBDT: totalFareBDT,
+      soloPortionBDT: 0,
+      sharedPortionPaisa: totalFarePaisa,
+      soloPortionPaisa: 0,
+      totalDiscountBDT: discountAmountBDT,
+      totalDiscountPaisa: poolDiscountPaisa,
+      totalFareBDT,
+      totalFarePaisa,
+    };
 
     const newRide = await tx.rideRequest.create({
       data: {
         passengerId,
         poolId,
-        corridorId: newRequestCorridorId,
-        pickupZone,
+        corridorId: locked.corridorId ?? null,
+        pickupZone: joinerPickup,
         destinationZone,
         seats,
         openToShare: false,
@@ -476,58 +558,19 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
         paymentMethod: input.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY',
         paymentStatus: 'UNPAID',
         paidAt: null,
-        stage: locked.stage === 'REQUESTED' ? 'REQUESTED' : 'MATCHED',
+        stage: locked.stage === 'REQUESTED' ? 'REQUESTED' : locked.stage === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'MATCHED',
         baseFarePaisa: 0,
-        distanceChargePaisa: 0,
-        poolDiscountPaisa: 0,
-        totalFarePaisa: 0,
+        distanceChargePaisa,
+        poolDiscountPaisa,
+        totalFarePaisa,
+        fareBreakdown: newRiderFare as object,
       },
     });
 
-    const allRequests = [
-      ...existingRequests.map((r) => ({
-        id: r.id,
-        pickupZone: r.pickupZone,
-        destinationZone: r.destinationZone,
-        seats: r.seats,
-      })),
-      { id: newRide.id, pickupZone, destinationZone, seats },
-    ];
-
-    let newRiderFare: RiderFareBreakdown;
-
-    if (commonCorridor) {
-      // All destinations share a corridor — pooled leg-discount applies to everyone
-      const calculation = await persistPoolFares(tx, commonCorridor, pickupZone, allRequests);
-      newRiderFare = calculation.riders[newRide.id];
-    } else {
-      // No common corridor — joiner pays solo fare; existing riders are left unchanged
-      const joinerCorridor = findCorridorForRoute(pickupZone, destinationZone);
-      if (!joinerCorridor) {
-        throw new RideError(400, `No route available from ${pickupZone} to ${destinationZone}`);
-      }
-      const soloCalc = calculateCorridorPoolFares({
-        corridor: joinerCorridor,
-        pickupZone,
-        riders: [{ requestId: newRide.id, pickupZone, destinationZone, seats }],
-      });
-      newRiderFare = soloCalc.riders[newRide.id];
-      await tx.rideRequest.update({
-        where: { id: newRide.id },
-        data: farePersistFields(newRiderFare),
-      });
-    }
-
-    // BUGFIX NOTE (Change 3): joinPool must NEVER modify Pool.teslaId, Pool.stage,
-    // or any other driver-assignment fields. Touching teslaId or resetting stage to
-    // REQUESTED would cause a MATCHED pool to reappear in the driver's open-pools feed,
-    // requiring the driver to re-accept what they already accepted. Only seatsTaken
-    // (and optionally corridorId when a common corridor is found) may be updated here.
     await tx.pool.update({
       where: { id: poolId },
       data: {
         seatsTaken: locked.seatsTaken + seats,
-        ...(commonCorridor ? { corridorId: commonCorridor.id } : {}),
       },
     });
 
@@ -594,16 +637,17 @@ export async function listShareableRides(search?: string) {
   const pools = await prisma.pool.findMany({
     where: {
       shareable: true,
-      stage: { in: ['REQUESTED', 'MATCHED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
       ...(search
         ? {
             OR: [
               { pickupZone: { contains: search, mode: 'insensitive' } },
+              { currentLocation: { contains: search, mode: 'insensitive' } },
               {
                 rideRequests: {
                   some: {
                     destinationZone: { contains: search, mode: 'insensitive' },
-                    stage: { notIn: ['CANCELLED'] },
+                    stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
                   },
                 },
               },
@@ -613,7 +657,7 @@ export async function listShareableRides(search?: string) {
     },
     include: {
       rideRequests: {
-        where: { stage: { notIn: ['CANCELLED'] } },
+        where: { stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] } },
         select: {
           destinationZone: true,
           seats: true,
@@ -632,6 +676,7 @@ export async function listShareableRides(search?: string) {
     .map((p) => ({
       poolId: p.id,
       pickupZone: p.pickupZone,
+      currentLocation: p.currentLocation || p.pickupZone,
       stage: p.stage,
       seatsTaken: p.seatsTaken,
       seatsCap: p.seatsCap,
@@ -1243,10 +1288,15 @@ export async function leaveRide(
       (r) => r.id !== rideId && r.stage !== 'CANCELLED' && r.stage !== 'COMPLETED'
     );
 
+    const currentSeatsTaken = ride.pool.seatsTaken ?? ride.seats;
+    const newSeatsTaken = Math.max(0, currentSeatsTaken - ride.seats);
+
     if (remainingActive.length === 0) {
       await prisma.pool.update({
         where: { id: ride.poolId },
         data: {
+          currentLocation: ride.destinationZone,
+          seatsTaken: 0,
           stage: 'COMPLETED',
           completedAt: new Date(),
         },
@@ -1261,6 +1311,15 @@ export async function leaveRide(
           poolId: ride.poolId,
         }).catch(() => {});
       }
+    } else {
+      await prisma.pool.update({
+        where: { id: ride.poolId },
+        data: {
+          currentLocation: ride.destinationZone,
+          seatsTaken: newSeatsTaken,
+        },
+      });
+      poolCompleted = false;
     }
   }
 

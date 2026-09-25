@@ -59,6 +59,8 @@ export const availableSharesQuerySchema = z.object({
 export type AvailableSharesQuery = z.infer<typeof availableSharesQuerySchema>;
 
 export const joinPoolSchema = z.object({
+  pickupZone: zoneEnum.optional(),
+  sourceZone: zoneEnum.optional(),
   destinationZone: zoneEnum,
   seats: z.number().int().min(1).max(3).optional().default(1),
   paymentMethod: paymentMethodEnum.optional().default('TESLA_PAY'),
