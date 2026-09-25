@@ -344,3 +344,53 @@ export async function apiDriverComplete(poolId: string) {
   return data
 }
 
+// ─── Private User History ────────────────────────────────────────────────────
+
+export interface PassengerHistoryRide {
+  id: string
+  pickupZone: Zone
+  destinationZone: Zone
+  createdAt: string
+  stage: RideStage
+  totalFarePaisa: number
+  driverName: string | null
+}
+
+export interface PassengerHistoryResponse {
+  rides: PassengerHistoryRide[]
+  totalSpentPaisa: number
+  completedRideCount: number
+}
+
+export interface DriverHistoryRider {
+  name: string
+  destinationZone: Zone
+  seats: number
+  totalFarePaisa: number
+}
+
+export interface DriverHistoryTrip {
+  id: string
+  pickupZone: Zone
+  completedAt: string
+  riders: DriverHistoryRider[]
+  tripEarningsPaisa: number
+}
+
+export interface DriverHistoryResponse {
+  trips: DriverHistoryTrip[]
+  totalIncomePaisa: number
+  completedTripCount: number
+}
+
+export async function apiGetPassengerHistory(): Promise<PassengerHistoryResponse> {
+  const { data } = await apiClient.get<PassengerHistoryResponse>('/rides/history')
+  return data
+}
+
+export async function apiGetDriverHistory(): Promise<DriverHistoryResponse> {
+  const { data } = await apiClient.get<DriverHistoryResponse>('/driver/history')
+  return data
+}
+
+

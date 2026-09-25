@@ -80,3 +80,61 @@ export async function completeTrip(driverId: string, poolId: string) {
   ]);
   return updatedPool;
 }
+
+export async function getDriverHistory(driverId: string) {
+  const tesla = await prisma.tesla.findUnique({ where: { driverId } });
+  if (!tesla) throw new DriverError(404, 'Register a Tesla first');
+
+  const pools = await prisma.pool.findMany({
+    where: {
+      teslaId: tesla.id,
+      stage: 'COMPLETED',
+    },
+    orderBy: { completedAt: 'desc' },
+    include: {
+      rideRequests: {
+        where: {
+          stage: { not: 'CANCELLED' },
+        },
+        include: {
+          passenger: {
+            select: { name: true },
+          },
+        },
+      },
+    },
+  });
+
+  const trips = pools.map((pool) => {
+    const riders = pool.rideRequests.map((r) => ({
+      name: r.passenger.name,
+      destinationZone: r.destinationZone,
+      seats: r.seats,
+      totalFarePaisa: r.totalFarePaisa,
+    }));
+    const tripEarningsPaisa = pool.rideRequests.reduce(
+      (sum, r) => sum + r.totalFarePaisa,
+      0
+    );
+    return {
+      id: pool.id,
+      pickupZone: pool.pickupZone,
+      completedAt: pool.completedAt,
+      riders,
+      tripEarningsPaisa,
+    };
+  });
+
+  const totalIncomePaisa = trips.reduce(
+    (sum, t) => sum + t.tripEarningsPaisa,
+    0
+  );
+  const completedTripCount = pools.length;
+
+  return {
+    trips,
+    totalIncomePaisa,
+    completedTripCount,
+  };
+}
+

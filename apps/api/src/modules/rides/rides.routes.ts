@@ -16,6 +16,7 @@ import {
   listAvailableShares,
   listShareableRides,
   joinPool,
+  getPassengerHistory,
   RideError,
 } from './rides.service.js';
 
@@ -140,6 +141,23 @@ export default async function rideRoutes(fastify: FastifyInstance) {
         const passengerId = req.user.sub;
         const rides = await getMyRides(passengerId);
         return reply.code(200).send({ rides });
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({ error: 'ride_error', message: err.message });
+        }
+        throw err;
+      }
+    }
+  );
+
+  fastify.get(
+    '/history',
+    { preHandler: [fastify.authenticate, fastify.requireRole('PASSENGER')] },
+    async (req, reply) => {
+      try {
+        const passengerId = req.user.sub;
+        const history = await getPassengerHistory(passengerId);
+        return reply.code(200).send(history);
       } catch (err) {
         if (err instanceof RideError) {
           return reply.code(err.statusCode).send({ error: 'ride_error', message: err.message });
