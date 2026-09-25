@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { apiGetActiveRides, apiDriverAccept, apiDriverArrived, apiDriverComplete, apiGetUserProfile } from '@/lib/api'
+import {
+  apiGetActiveRides,
+  apiDriverAccept,
+  apiDriverArrived,
+  apiDriverArriveAtDestination,
+  apiDriverComplete,
+  apiGetUserProfile,
+  apiDriverConfirmCash,
+} from '@/lib/api'
+
 import { cn, formatBDT, formatDate, ZONE_EMOJI } from '@/lib/utils'
 import type { ActivePool } from '@/lib/api'
 import StarRating from '@/components/ui/star-rating'
@@ -78,26 +87,29 @@ export default function ActivePools() {
       return
     }
     fetchActive()
-    const interval = setInterval(fetchActive, 15_000)
+    const interval = setInterval(fetchActive, 5_000)
     return () => clearInterval(interval)
   }, [fetchActive, isAuthenticated])
 
   const runAction = useCallback(
-    async (poolId: string, label: string, fn: () => Promise<unknown>) => {
-      setActions((prev) => ({ ...prev, [poolId]: { doing: true, done: '' } }))
+    async (targetId: string, label: string, fn: () => Promise<unknown>) => {
+      setActions((prev) => ({ ...prev, [targetId]: { doing: true, done: '' } }))
       try {
         await fn()
-        setActions((prev) => ({ ...prev, [poolId]: { doing: false, done: label } }))
-        // Refresh after a brief success display
-        setTimeout(fetchActive, 1500)
+        setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: label } }))
+        // Refresh immediately and again after brief delay
+        fetchActive()
+        setTimeout(fetchActive, 1000)
       } catch (err: unknown) {
         const ae = err as { response?: { data?: { error?: string } } }
         setError(ae.response?.data?.error ?? `Failed to ${label.toLowerCase()}.`)
-        setActions((prev) => ({ ...prev, [poolId]: { doing: false, done: '' } }))
+        setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: '' } }))
       }
     },
     [fetchActive]
   )
+
+
 
   const totalEarnings = pools.reduce(
     (sum, p) => sum + p.rideRequests.reduce((s, r) => s + Math.round(r.totalFarePaisa / 100), 0),
@@ -213,12 +225,18 @@ export default function ActivePools() {
             const isMatched = pool.stage === 'MATCHED'
             const isArrived = pool.stage === 'DRIVER_ARRIVED'
             const isRequested = pool.stage === 'REQUESTED'
+            const isInProgress = pool.stage === 'IN_PROGRESS'
+            const isArrivedAtDestination = pool.stage === 'ARRIVED_AT_DESTINATION'
+            const isCompleted = pool.stage === 'COMPLETED'
 
             const sortedRiders = [...pool.rideRequests].sort((a, b) => {
               const legsA = a.fareBreakdown?.legs?.length ?? 0
               const legsB = b.fareBreakdown?.legs?.length ?? 0
               return legsA - legsB
             })
+
+            const completedRiders = sortedRiders.filter((r) => r.stage === 'COMPLETED')
+            const allCompleted = sortedRiders.length > 0 && completedRiders.length === sortedRiders.length
 
             const corridorName = sortedRiders[0]?.fareBreakdown?.corridorName
 
@@ -271,30 +289,43 @@ export default function ActivePools() {
                   </div>
                 </div>
 
-                {/* Riders — Change 6: passenger names are clickable to their profiles */}
+                {/* Riders List */}
                 {sortedRiders.length > 0 && (
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider flex items-center gap-1.5">
                         <Navigation className="w-3 h-3 text-[#00ff9d]" />
-                        Drop-off Route (Corridor Order)
+                        Passengers &amp; Drop-off Stops
                       </p>
-                      <span className="text-[11px] text-[#4d6080]">Sequential Stops</span>
+                      <span
+                        className={cn(
+                          'text-[10px] font-bold px-2 py-0.5 rounded-full border',
+                          allCompleted
+                            ? 'bg-[#00ff9d]/20 text-[#00ff9d] border-[#00ff9d]/30'
+                            : 'bg-[#00d4ff]/20 text-[#00d4ff] border-[#00d4ff]/30'
+                        )}
+                      >
+                        {allCompleted ? 'All journeys ended' : `${completedRiders.length}/${sortedRiders.length} reached stop`}
+                      </span>
                     </div>
 
                     {sortedRiders.map((req, stopIdx) => {
                       const fareBDT = Math.round(req.totalFarePaisa / 100)
+                      const isPassengerCompleted = req.stage === 'COMPLETED'
+
                       return (
                         <div
                           key={req.id}
-                          className="glass-card-sm p-3 flex items-center justify-between gap-3 border-l-2 border-l-[#00d4ff]/40"
+                          className={cn(
+                            'glass-card-sm p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-l-2',
+                            isPassengerCompleted ? 'border-l-[#00ff9d]/60 opacity-80' : 'border-l-[#00d4ff]/80'
+                          )}
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 text-xs font-semibold text-[#f0f4ff]">
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[#f0f4ff]">
                               <span className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
                                 {stopIdx + 1}
                               </span>
-                              {/* Clickable passenger name → profile */}
                               <UserNameBadge
                                 userId={req.passenger.id}
                                 name={req.passenger.name}
@@ -303,6 +334,15 @@ export default function ActivePools() {
                               <span className="text-[10px] text-[#00ff9d] bg-[#00ff9d]/10 px-1.5 py-0.5 rounded border border-[#00ff9d]/20">
                                 Stop #{stopIdx + 1}
                               </span>
+                              {isPassengerCompleted ? (
+                                <span className="text-[10px] font-bold text-[#00ff9d] bg-[#00ff9d]/15 px-2 py-0.5 rounded border border-[#00ff9d]/30 flex items-center gap-1">
+                                  Left Vehicle · Journey Ended ✅
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-medium text-[#00d4ff] bg-[#00d4ff]/15 px-2 py-0.5 rounded border border-[#00d4ff]/30 flex items-center gap-1">
+                                  Onboard 🚗 · Prepaid ⚡
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2 text-xs text-[#8ba3c7] mt-1.5 ml-7">
                               <span className="font-semibold text-[#f0f4ff]">
@@ -319,11 +359,7 @@ export default function ActivePools() {
                             <div className="text-xs font-bold text-[#00d4ff]">
                               {formatBDT(fareBDT)}
                             </div>
-                            {req.fareBreakdown && req.fareBreakdown.totalDiscountBDT > 0 && (
-                              <div className="text-[10px] text-[#00ff9d]">
-                                -{formatBDT(req.fareBreakdown.totalDiscountBDT)} pooled
-                              </div>
-                            )}
+                            <div className="text-[10px] text-[#00ff9d]">Prepaid</div>
                           </div>
                         </div>
                       )
@@ -331,60 +367,75 @@ export default function ActivePools() {
                   </div>
                 )}
 
-                {/* Action buttons — Change 2: Accept → Mark Arrived → Complete (no Start) */}
+                {/* Action buttons */}
                 <div className="space-y-2">
                   {action?.done ? (
                     <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#00ff9d]/10 border border-[#00ff9d]/30 text-[#00ff9d] text-sm font-semibold">
                       <CheckCircle2 className="w-4 h-4" />
                       {action.done === 'Accept' && 'Pool Accepted! Driver en route.'}
-                      {action.done === 'Arrived' && 'Marked Arrived!'}
-                      {action.done === 'Complete' && 'Ride Completed!'}
+                      {action.done === 'Arrived' && 'Marked Arrived at Pickup!'}
+                      {action.done === 'Complete' && 'Journey Completed!'}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
                       {/* Accept — only available when REQUESTED */}
                       {isRequested && (
                         <button
                           onClick={() => runAction(pool.id, 'Accept', () => apiDriverAccept(pool.id))}
                           disabled={action?.doing}
-                          className="col-span-2 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 transition-all duration-200 disabled:opacity-50"
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                         >
                           {action?.doing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                           Accept Pool
                         </button>
                       )}
 
-                      {/* Mark Arrived — only when MATCHED */}
+                      {/* Mark Arrived at Pickup — only when MATCHED */}
                       {isMatched && (
                         <button
                           onClick={() => runAction(pool.id, 'Arrived', () => apiDriverArrived(pool.id))}
                           disabled={action?.doing}
-                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 transition-all duration-200 disabled:opacity-50"
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                         >
                           {action?.doing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-                          Mark Arrived
+                          Mark Arrived at Pickup
                         </button>
                       )}
 
-                      {/* Complete — when MATCHED or DRIVER_ARRIVED */}
-                      {(isMatched || isArrived) && (
-                        <button
-                          onClick={() => runAction(pool.id, 'Complete', () => apiDriverComplete(pool.id))}
-                          disabled={action?.doing}
-                          className={cn(
-                            'flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 disabled:opacity-50',
-                            isArrived
-                              ? 'col-span-2 border-[#00ff9d]/40 text-[#00ff9d] bg-[#00ff9d]/10 hover:bg-[#00ff9d]/20'
-                              : 'border-[#1f2d44]/50 text-[#8ba3c7] hover:border-[#1f2d44] hover:text-[#f0f4ff] bg-[#1c2740]/40'
+                      {/* Status & actions when in progress / arrived */}
+                      {(isArrived || isInProgress || isArrivedAtDestination) && (
+                        <div className="space-y-2">
+                          {allCompleted ? (
+                            <div className="p-3.5 rounded-xl bg-[#00ff9d]/15 border border-[#00ff9d]/30 text-center space-y-1 animate-fade-in">
+                              <p className="text-xs font-bold text-[#00ff9d] flex items-center justify-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4" />
+                                All passengers have ended their journey! Trip completed automatically.
+                              </p>
+                              <p className="text-[11px] text-[#8ba3c7]">
+                                Earnings have been credited to your TeslaPay wallet.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="p-3 rounded-xl bg-[#0a0e17]/50 border border-[#1f2d44]/50 flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 text-[#8ba3c7]">
+                                <Car className="w-4 h-4 text-[#00d4ff] animate-pulse" />
+                                <span>Trip in progress · Passengers leave at their stop</span>
+                              </div>
+                              <button
+                                onClick={() => runAction(pool.id, 'Complete', () => apiDriverComplete(pool.id))}
+                                disabled={action?.doing}
+                                className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 underline cursor-pointer disabled:opacity-50"
+                              >
+                                {action?.doing ? 'Finishing…' : 'Drop Off All & Finish'}
+                              </button>
+                            </div>
                           )}
-                        >
-                          {action?.doing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                          Complete Ride
-                        </button>
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
+
               </div>
             )
           })}

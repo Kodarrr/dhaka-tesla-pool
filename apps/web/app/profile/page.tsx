@@ -9,9 +9,12 @@ import {
   apiGetUserProfile,
   apiGetPassengerHistory,
   apiGetDriverHistory,
+  apiGetWallet,
+  apiTopUpWallet,
   type UserProfile,
   type PassengerHistoryResponse,
   type DriverHistoryResponse,
+  type WalletResponse,
 } from '@/lib/api'
 import { cn, formatPaisa, formatDate, STAGE_META, ZONE_EMOJI } from '@/lib/utils'
 import {
@@ -28,9 +31,13 @@ import {
   AlertCircle,
   Inbox,
   Users,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Plus,
 } from 'lucide-react'
 
-type ProfileTab = 'overview' | 'history'
+type ProfileTab = 'overview' | 'history' | 'wallet'
 
 export default function ProfilePage() {
   const { user, isAuthenticated, isLoading: authLoading, openAuthModal, role } = useAuth()
@@ -46,6 +53,13 @@ export default function ProfilePage() {
   const [driverHistory, setDriverHistory] = useState<DriverHistoryResponse | null>(null)
   const [driverHistoryLoading, setDriverHistoryLoading] = useState(false)
   const [driverHistoryError, setDriverHistoryError] = useState('')
+
+  const [wallet, setWallet] = useState<WalletResponse | null>(null)
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [walletError, setWalletError] = useState('')
+  const [topupAmount, setTopupAmount] = useState('')
+  const [topupLoading, setTopupLoading] = useState(false)
+  const [topupSuccess, setTopupSuccess] = useState('')
 
   const isDriver = role === 'DRIVER'
 
@@ -87,6 +101,38 @@ export default function ProfilePage() {
     }
   }, [])
 
+  const loadWallet = useCallback(async () => {
+    try {
+      setWalletLoading(true)
+      setWalletError('')
+      const data = await apiGetWallet()
+      setWallet(data)
+    } catch (err: any) {
+      setWalletError(err?.response?.data?.error || 'Failed to load wallet')
+    } finally {
+      setWalletLoading(false)
+    }
+  }, [])
+
+  const handleTopup = async (amountTaka: number) => {
+    if (!amountTaka || amountTaka <= 0) return
+    setTopupLoading(true)
+    setWalletError('')
+    setTopupSuccess('')
+    try {
+      const paisa = Math.round(amountTaka * 100)
+      await apiTopUpWallet(paisa)
+      setTopupSuccess(`Successfully topped up ৳${amountTaka}!`)
+      setTopupAmount('')
+      await loadWallet()
+      setTimeout(() => setTopupSuccess(''), 4000)
+    } catch (err: any) {
+      setWalletError(err?.response?.data?.error || 'Top-up failed')
+    } finally {
+      setTopupLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (user?.id) {
       loadProfile(user.id)
@@ -100,8 +146,10 @@ export default function ProfilePage() {
       } else {
         loadPassengerHistory()
       }
+    } else if (isAuthenticated && tab === 'wallet') {
+      loadWallet()
     }
-  }, [isAuthenticated, tab, isDriver, loadDriverHistory, loadPassengerHistory])
+  }, [isAuthenticated, tab, isDriver, loadDriverHistory, loadPassengerHistory, loadWallet])
 
   if (authLoading) {
     return (
@@ -209,6 +257,18 @@ export default function ProfilePage() {
                 )}
               >
                 History
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('wallet')}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200',
+                  tab === 'wallet'
+                    ? 'bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] text-[#090d16] shadow'
+                    : 'text-[#8ba3c7] hover:text-[#f0f4ff]'
+                )}
+              >
+                Wallet
               </button>
             </div>
           </div>
@@ -542,6 +602,194 @@ export default function ProfilePage() {
                 ) : null}
               </>
             )}
+          </div>
+        )}
+
+        {/* Tab 3: Wallet */}
+        {tab === 'wallet' && (
+          <div className="space-y-6">
+            {walletLoading && !wallet ? (
+              <div className="flex items-center justify-center py-16 gap-3 text-[#4d6080]">
+                <Loader2 className="w-5 h-5 animate-spin text-[#00d4ff]" />
+                <span className="text-sm">Loading wallet…</span>
+              </div>
+            ) : walletError && !wallet ? (
+              <div className="glass-card p-6 text-center text-red-400 text-sm">
+                {walletError}
+              </div>
+            ) : wallet ? (
+              <>
+                {/* TeslaPay Balance Card */}
+                <div className="glass-card p-6 border-cyan-500/30 bg-gradient-to-br from-cyan-950/20 via-[#0f1521] to-[#0f1521]">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-[#00d4ff]" />
+                        <p className="text-xs font-semibold uppercase tracking-wider text-[#00d4ff]">
+                          TeslaPay Balance
+                        </p>
+                      </div>
+                      <div className="text-3xl sm:text-4xl font-extrabold text-[#f0f4ff] mt-1 tracking-tight">
+                        {formatPaisa(wallet.teslaPayBalancePaisa)}
+                      </div>
+                      <p className="text-xs text-[#8ba3c7] mt-1">
+                        Used for instant fare settlement on completed rides.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-start sm:self-center">
+                      <span className="text-xs font-bold text-[#00ff9d] bg-[#00ff9d]/10 px-3 py-1.5 rounded-full border border-[#00ff9d]/30">
+                        ⚡ Instant Settlement
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Top-Up Card */}
+                <div className="glass-card p-6 space-y-4">
+                  <h3 className="text-sm font-bold text-[#f0f4ff] flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-[#00d4ff]" />
+                    Quick Top-Up
+                  </h3>
+
+                  {topupSuccess && (
+                    <div className="p-3 rounded-xl bg-[#00ff9d]/15 border border-[#00ff9d]/40 flex items-center gap-2 text-xs text-[#00ff9d] font-semibold animate-fade-in">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>{topupSuccess}</span>
+                    </div>
+                  )}
+
+                  {walletError && (
+                    <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center gap-2 text-xs text-red-400 animate-fade-in">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{walletError}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <p className="text-xs text-[#8ba3c7]">Select an amount or enter custom Taka:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[100, 500, 1000, 2000].map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          disabled={topupLoading}
+                          onClick={() => handleTopup(amt)}
+                          className="py-2.5 px-3 rounded-xl border border-[#1f2d44] bg-[#0a0e17]/80 hover:bg-[#00d4ff]/10 hover:border-[#00d4ff]/40 text-xs font-bold text-[#f0f4ff] transition-all flex items-center justify-center gap-1 disabled:opacity-50"
+                        >
+                          +৳{amt.toLocaleString('en-BD')}
+                        </button>
+                      ))}
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        const val = parseFloat(topupAmount)
+                        if (val > 0) handleTopup(val)
+                      }}
+                      className="flex gap-2 pt-1"
+                    >
+                      <input
+                        type="number"
+                        min="1"
+                        max="50000"
+                        step="1"
+                        placeholder="Custom amount (৳)"
+                        value={topupAmount}
+                        onChange={(e) => setTopupAmount(e.target.value)}
+                        className="flex-1 bg-[#0a0e17]/80 border border-[#1f2d44] rounded-xl px-3 py-2 text-xs text-[#f0f4ff] placeholder-[#4d6080] focus:outline-none focus:border-[#00d4ff]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={topupLoading || !topupAmount || parseFloat(topupAmount) <= 0}
+                        className="btn-primary px-5 py-2 text-xs font-bold shrink-0 disabled:opacity-50"
+                      >
+                        {topupLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          'Top Up'
+                        )}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {/* Transaction History List */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-[#4d6080] px-1">
+                    Transaction History ({wallet.transactions.length})
+                  </h3>
+
+                  {wallet.transactions.length === 0 ? (
+                    <div className="glass-card p-8 text-center space-y-2">
+                      <Inbox className="w-8 h-8 text-[#4d6080] mx-auto" />
+                      <p className="text-sm text-[#8ba3c7]">No transactions yet</p>
+                    </div>
+                  ) : (
+                    wallet.transactions.map((txn) => {
+                      const isCredit = txn.amountPaisa > 0
+                      const label =
+                        txn.type === 'TOPUP'
+                          ? 'Top-up'
+                          : txn.type === 'RIDE_PAYMENT_DEBIT'
+                          ? 'Ride Fare Paid'
+                          : txn.type === 'RIDE_PAYMENT_CREDIT'
+                          ? 'Ride Fare Received'
+                          : txn.type
+
+                      return (
+                        <div
+                          key={txn.id}
+                          className="glass-card p-4 hover:border-[#1f2d44]/80 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={cn(
+                                  'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border',
+                                  isCredit
+                                    ? 'bg-[#00ff9d]/10 border-[#00ff9d]/30 text-[#00ff9d]'
+                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                )}
+                              >
+                                {isCredit ? (
+                                  <ArrowUpRight className="w-4 h-4" />
+                                ) : (
+                                  <ArrowDownLeft className="w-4 h-4" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-[#f0f4ff]">{label}</p>
+                                <div className="flex items-center gap-2 text-[11px] text-[#4d6080] mt-0.5">
+                                  <span>{formatDate(txn.createdAt)}</span>
+                                  {txn.rideRequestId && (
+                                    <span>
+                                      · Ride #{txn.rideRequestId.slice(0, 8)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span
+                                className={cn(
+                                  'text-sm font-bold',
+                                  isCredit ? 'text-[#00ff9d]' : 'text-amber-400'
+                                )}
+                              >
+                                {isCredit ? '+' : '-'}
+                                {formatPaisa(Math.abs(txn.amountPaisa))}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            ) : null}
           </div>
         )}
       </main>

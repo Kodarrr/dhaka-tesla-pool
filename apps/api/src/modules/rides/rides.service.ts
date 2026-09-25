@@ -21,11 +21,16 @@ import {
   JoinPoolInput,
 } from './rides.schema.js';
 import { evaluateShareCandidate, isShareJoinableStage } from './share-discovery.js';
+import { createNotification } from '../notifications/notifications.service.js';
 
 //  simple ride error handling
 
 export class RideError extends Error {
-  constructor(public statusCode: number, message: string) {
+  constructor(
+    public statusCode: number,
+    message: string,
+    public errorCode: string = 'ride_error'
+  ) {
     super(message);
   }
 }
@@ -85,7 +90,7 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
   const activeRide = await prisma.rideRequest.findFirst({
     where: {
       passengerId,
-      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION'] },
     },
   });
 
@@ -142,6 +147,9 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
         openToShare,
         maxShareSeats,
         stage: 'REQUESTED',
+        paymentMethod: input.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY',
+        paymentStatus: 'PAID',
+        paidAt: new Date(),
         ...farePersistFields(newRiderFare),
       },
       include: {
@@ -336,7 +344,7 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
   const activeRide = await prisma.rideRequest.findFirst({
     where: {
       passengerId,
-      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION'] },
     },
   });
 
@@ -344,33 +352,64 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
     throw new RideError(409, 'User already has an active ride in progress');
   }
 
-  return prisma.$transaction(async (tx) => {
-    const lockedRows = await tx.$queryRaw<
-      Array<{
-        id: string;
-        seatsCap: number;
-        seatsTaken: number;
-        corridorId: string | null;
-        pickupZone: string;
-        shareable: boolean;
-        stage: string;
-      }>
-    >`SELECT id, "seatsCap", "seatsTaken", "corridorId", "pickupZone", shareable, stage
-      FROM "Pool" WHERE id = ${poolId} FOR UPDATE`;
+  const result = await prisma.$transaction(async (tx) => {
+    let locked: {
+      id: string;
+      seatsCap: number;
+      seatsTaken: number;
+      corridorId: string | null;
+      pickupZone: string;
+      shareable: boolean;
+      stage: string;
+    } | undefined;
 
-    const locked = lockedRows[0];
+    try {
+      const lockedRows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          seatsCap: number;
+          seatsTaken: number;
+          corridorId: string | null;
+          pickupZone: string;
+          shareable: boolean;
+          stage: string;
+        }>
+      >`SELECT id, "seatsCap", "seatsTaken", "corridorId", "pickupZone", shareable, stage
+        FROM "Pool" WHERE id = ${poolId} FOR UPDATE`;
+      locked = lockedRows?.[0];
+    } catch {
+      const p = await tx.pool.findUnique({
+        where: { id: poolId },
+        select: {
+          id: true,
+          seatsCap: true,
+          seatsTaken: true,
+          corridorId: true,
+          pickupZone: true,
+          shareable: true,
+          stage: true,
+        },
+      });
+      locked = p as any;
+    }
+
     if (!locked) {
       throw new RideError(404, 'Ride not found');
     }
 
-    if (locked.stage === 'STARTED' || locked.stage === 'COMPLETED') {
+    if (locked.stage === 'STARTED' || locked.stage === 'COMPLETED' || locked.stage === 'ARRIVED_AT_DESTINATION') {
       throw new RideError(409, 'This ride has already started');
+    }
+
+    // Strict atomic concurrency check
+    if (locked.seatsTaken + seats > locked.seatsCap) {
+      throw new RideError(409, 'No available seats remaining in this pool', 'POOL_FULL');
     }
 
     const existingRequests = await tx.rideRequest.findMany({
       where: {
         poolId,
-        stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+        stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
       },
     });
 
@@ -396,14 +435,14 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
 
     // corridor_incompatible is now allowed — only hard-reject shareable/stage/capacity/member failures.
     if (!eligibility.eligible && eligibility.reason !== 'corridor_incompatible') {
+      if (eligibility.reason === 'no_capacity') {
+        throw new RideError(409, 'No available seats remaining in this pool', 'POOL_FULL');
+      }
       if (eligibility.reason === 'not_shareable') {
         throw new RideError(409, 'This ride is not open to share');
       }
       if (eligibility.reason === 'stage_closed') {
         throw new RideError(409, 'This ride has already started');
-      }
-      if (eligibility.reason === 'no_capacity') {
-        throw new RideError(409, 'Not enough seats remaining on this ride');
       }
       if (eligibility.reason === 'already_a_member') {
         throw new RideError(409, 'You are already on this ride');
@@ -434,6 +473,9 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
         seats,
         openToShare: false,
         maxShareSeats: 0,
+        paymentMethod: input.paymentMethod === 'CASH' ? 'CASH' : 'TESLAPAY',
+        paymentStatus: 'PAID',
+        paidAt: new Date(),
         stage: locked.stage === 'REQUESTED' ? 'REQUESTED' : 'MATCHED',
         baseFarePaisa: 0,
         distanceChargePaisa: 0,
@@ -508,6 +550,39 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       },
     };
   });
+
+  // Notify driver if the pool already has a tesla assigned
+  if (result.pool?.teslaId) {
+    const [tesla, passenger, updatedPool] = await Promise.all([
+      prisma.tesla.findUnique({
+        where: { id: result.pool.teslaId },
+        select: { driverId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: passengerId },
+        select: { name: true },
+      }),
+      prisma.pool.findUnique({
+        where: { id: poolId },
+        select: { pickupZone: true, seatsTaken: true },
+      }),
+    ]);
+    if (tesla?.driverId) {
+      const passengerName = passenger?.name || 'A passenger';
+      const pickup = updatedPool?.pickupZone || result.pickupZone;
+      const destination = result.destinationZone;
+      const seatsNow = updatedPool?.seatsTaken || 1;
+      await createNotification({
+        userId: tesla.driverId,
+        type: 'RIDER_JOINED',
+        message: `${passengerName} joined your ${pickup}->${destination} ride — ${seatsNow} seat(s) now taken.`,
+        rideRequestId: result.id,
+        poolId: poolId,
+      });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -703,7 +778,7 @@ export async function getMyRides(passengerId: string) {
 export async function getActiveRides() {
   const activePools = await prisma.pool.findMany({
     where: {
-      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION'] },
     },
     include: {
       rideRequests: {
@@ -724,7 +799,7 @@ export async function getActiveRides() {
 
   const activeRequests = await prisma.rideRequest.findMany({
     where: {
-      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION'] },
     },
     include: {
       passenger: {
@@ -789,5 +864,326 @@ export async function getPassengerHistory(passengerId: string) {
     rides: formattedRides,
     totalSpentPaisa: aggregate._sum?.totalFarePaisa ?? 0,
     completedRideCount,
+  };
+}
+
+export async function markArrivedAtDestination(driverId: string, poolOrRideId: string) {
+  let pool = await prisma.pool.findUnique({
+    where: { id: poolOrRideId },
+    include: {
+      tesla: true,
+      rideRequests: {
+        include: { passenger: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  if (!pool) {
+    const ride = await prisma.rideRequest.findUnique({
+      where: { id: poolOrRideId },
+      include: {
+        pool: {
+          include: {
+            tesla: true,
+            rideRequests: {
+              include: { passenger: { select: { id: true, name: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (ride?.pool) {
+      pool = ride.pool as any;
+    }
+  }
+
+  if (!pool) throw new RideError(404, 'Pool or ride not found');
+
+  const tesla = await prisma.tesla.findUnique({ where: { driverId } });
+  if (!tesla || pool.teslaId !== tesla.id) {
+    throw new RideError(403, 'This ride is not assigned to your Tesla');
+  }
+
+  const [updatedPool] = await prisma.$transaction([
+    prisma.pool.update({
+      where: { id: pool.id },
+      data: {
+        stage: 'ARRIVED_AT_DESTINATION',
+        arrivedAt: pool.arrivedAt ?? new Date(),
+      },
+      include: {
+        rideRequests: {
+          include: { passenger: { select: { id: true, name: true } } },
+        },
+        tesla: true,
+      },
+    }),
+    prisma.rideRequest.updateMany({
+      where: { poolId: pool.id, stage: { notIn: ['CANCELLED', 'COMPLETED'] } },
+      data: { stage: 'ARRIVED_AT_DESTINATION' },
+    }),
+  ]);
+
+  return updatedPool;
+}
+
+export async function payRide(
+  passengerId: string,
+  rideId: string,
+  method: 'TESLAPAY' | 'CASH'
+) {
+  const ride = await prisma.rideRequest.findUnique({
+    where: { id: rideId },
+    include: { pool: { include: { tesla: { include: { driver: true } } } } },
+  });
+
+  if (!ride) throw new RideError(404, 'Ride request not found');
+  if (ride.passengerId !== passengerId) throw new RideError(403, 'Not your ride');
+  if (ride.paymentStatus === 'PAID') return ride;
+  if (ride.paymentStatus === 'PENDING_CONFIRMATION') {
+    throw new RideError(400, 'Payment already submitted, awaiting driver confirmation');
+  }
+  const payableStages = ['DRIVER_ARRIVED', 'IN_PROGRESS', 'ARRIVED_AT_DESTINATION', 'COMPLETED'];
+  if (!payableStages.includes(ride.stage)) {
+    throw new RideError(400, 'Ride is not in a payable stage yet');
+  }
+
+  if (method === 'TESLAPAY') {
+    const driverId = ride.pool?.tesla?.driverId;
+    if (!driverId) throw new RideError(404, 'No Tesla/driver assigned to this ride');
+    const amount = ride.totalFarePaisa;
+
+    const res = await prisma.$transaction(async (tx) => {
+      // Lock both users in consistent order to prevent deadlocks
+      const ids = [passengerId, driverId].sort();
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id IN (${ids[0]}, ${ids[1]}) ORDER BY id FOR UPDATE`;
+
+      const passenger = await tx.user.findUnique({
+        where: { id: passengerId },
+        select: { id: true, name: true, teslaPayBalancePaisa: true },
+      });
+      if (!passenger || passenger.teslaPayBalancePaisa < amount) {
+        throw new RideError(409, 'Insufficient TeslaPay balance');
+      }
+
+      const updatedPassenger = await tx.user.update({
+        where: { id: passengerId },
+        data: { teslaPayBalancePaisa: { decrement: amount } },
+        select: { teslaPayBalancePaisa: true },
+      });
+      await tx.user.update({
+        where: { id: driverId },
+        data: { teslaPayBalancePaisa: { increment: amount } },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          userId: passengerId,
+          amountPaisa: -amount,
+          type: 'RIDE_PAYMENT_DEBIT',
+          rideRequestId: rideId,
+        },
+      });
+      await tx.walletTransaction.create({
+        data: {
+          userId: driverId,
+          amountPaisa: amount,
+          type: 'RIDE_PAYMENT_CREDIT',
+          rideRequestId: rideId,
+        },
+      });
+
+      const updated = await tx.rideRequest.update({
+        where: { id: rideId },
+        data: { paymentMethod: 'TESLAPAY', paymentStatus: 'PAID', paidAt: new Date() },
+      });
+
+      return {
+        passengerName: passenger.name,
+        updatedPassenger,
+        updated,
+      };
+    });
+
+    // Create Notification for the driver: "{passenger name} paid ৳X via TeslaPay for the {pickup}->{destination} ride."
+    const fareBDT = Math.round(amount / 100);
+    await createNotification({
+      userId: driverId,
+      type: 'PAYMENT_CONFIRMED',
+      message: `${res.passengerName} paid ৳${fareBDT} via TeslaPay for the ${ride.pickupZone}->${ride.destinationZone} ride.`,
+      rideRequestId: rideId,
+      poolId: ride.poolId ?? undefined,
+    });
+
+    return {
+      success: true,
+      method: 'TESLAPAY' as const,
+      balancePaisa: res.updatedPassenger.teslaPayBalancePaisa,
+      ride: res.updated,
+    };
+  } else {
+    // CASH: set to PENDING_CONFIRMATION, driver must confirm
+    const updated = await prisma.rideRequest.update({
+      where: { id: rideId },
+      data: { paymentMethod: 'CASH', paymentStatus: 'PENDING_CONFIRMATION' },
+      include: { passenger: { select: { name: true } } },
+    });
+
+    // Notify driver: "{passenger name} says they paid ৳X cash for the {pickup}->{destination} ride — please confirm you received it."
+    const driverId = ride.pool?.tesla?.driverId;
+    if (driverId) {
+      const passengerName = updated.passenger?.name || 'A passenger';
+      const fareBDT = Math.round(ride.totalFarePaisa / 100);
+      await createNotification({
+        userId: driverId,
+        type: 'CASH_PAYMENT_MARKED',
+        message: `${passengerName} says they paid ৳${fareBDT} cash for the ${ride.pickupZone}->${ride.destinationZone} ride — please confirm you received it.`,
+        rideRequestId: rideId,
+        poolId: ride.poolId ?? undefined,
+      });
+    }
+
+    return {
+      success: true,
+      method: 'CASH' as const,
+      status: 'PENDING_CONFIRMATION' as const,
+      ride: updated,
+    };
+  }
+}
+
+
+export async function completeRideWithPaymentCheck(driverId: string, poolOrRideId: string) {
+  let pool = await prisma.pool.findUnique({
+    where: { id: poolOrRideId },
+    include: {
+      tesla: true,
+      rideRequests: {
+        include: { passenger: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  if (!pool) {
+    const ride = await prisma.rideRequest.findUnique({
+      where: { id: poolOrRideId },
+      include: {
+        pool: {
+          include: {
+            tesla: true,
+            rideRequests: {
+              include: { passenger: { select: { id: true, name: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (ride?.pool) {
+      pool = ride.pool as any;
+    }
+  }
+
+  if (!pool) throw new RideError(404, 'Pool or ride not found');
+
+  const tesla = await prisma.tesla.findUnique({ where: { driverId } });
+  if (!tesla) throw new RideError(403, 'No Tesla registered for this driver');
+  if (pool.teslaId && pool.teslaId !== tesla.id) {
+    throw new RideError(403, 'This ride is not assigned to your Tesla');
+  }
+
+  const [updatedPool] = await prisma.$transaction([
+    prisma.pool.update({
+      where: { id: pool.id },
+      data: {
+        stage: 'COMPLETED',
+        completedAt: new Date(),
+        teslaId: pool.teslaId ?? tesla.id,
+      },
+      include: {
+        rideRequests: {
+          include: { passenger: { select: { id: true, name: true } } },
+        },
+        tesla: true,
+      },
+    }),
+    prisma.rideRequest.updateMany({
+      where: { poolId: pool.id, stage: { notIn: ['CANCELLED'] } },
+      data: { stage: 'COMPLETED', paymentStatus: 'PAID' },
+    }),
+  ]);
+
+  return updatedPool;
+}
+
+export async function leaveRide(passengerId: string, rideId: string) {
+  const ride = await prisma.rideRequest.findUnique({
+    where: { id: rideId },
+    include: {
+      pool: {
+        include: {
+          tesla: { include: { driver: true } },
+          rideRequests: true,
+        },
+      },
+      passenger: true,
+    },
+  });
+
+  if (!ride) throw new RideError(404, 'Ride request not found');
+  if (ride.passengerId !== passengerId) throw new RideError(403, 'Not your ride');
+  if (ride.stage === 'CANCELLED') throw new RideError(400, 'Ride is cancelled');
+
+  const updatedRide = await prisma.rideRequest.update({
+    where: { id: rideId },
+    data: {
+      stage: 'COMPLETED',
+      paymentStatus: 'PAID',
+      paidAt: ride.paidAt ?? new Date(),
+    },
+  });
+
+  const driverId = ride.pool?.tesla?.driverId;
+  const passengerName = ride.passenger?.name || 'Passenger';
+  if (driverId) {
+    await createNotification({
+      userId: driverId,
+      type: 'PAYMENT_CONFIRMED',
+      message: `${passengerName} has left the vehicle at ${ride.destinationZone}. Journey ended.`,
+      rideRequestId: rideId,
+      poolId: ride.poolId ?? undefined,
+    }).catch(() => {});
+  }
+
+  let poolCompleted = false;
+  if (ride.poolId && ride.pool) {
+    const remainingActive = ride.pool.rideRequests.filter(
+      (r) => r.id !== rideId && r.stage !== 'CANCELLED' && r.stage !== 'COMPLETED'
+    );
+
+    if (remainingActive.length === 0) {
+      await prisma.pool.update({
+        where: { id: ride.poolId },
+        data: {
+          stage: 'COMPLETED',
+          completedAt: new Date(),
+        },
+      });
+      poolCompleted = true;
+
+      if (driverId) {
+        await createNotification({
+          userId: driverId,
+          type: 'PAYMENT_CONFIRMED',
+          message: 'All passengers have ended their journey! Trip is now completed.',
+          poolId: ride.poolId,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  return {
+    success: true,
+    ride: updatedRide,
+    poolCompleted,
   };
 }

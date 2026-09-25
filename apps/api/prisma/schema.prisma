@@ -7,8 +7,20 @@ enum Stage {
   REQUESTED
   MATCHED
   DRIVER_ARRIVED
+  IN_PROGRESS
+  ARRIVED_AT_DESTINATION
   COMPLETED
   CANCELLED
+}
+
+enum PaymentMethod {
+  TESLA_PAY
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
 }
 
 datasource db {
@@ -85,6 +97,8 @@ model RideRequest {
   openToShare     Boolean   @default(false)
   maxShareSeats   Int       @default(0)
   stage           Stage     @default(REQUESTED)
+  paymentMethod   PaymentMethod @default(TESLA_PAY)
+  paymentStatus   PaymentStatus @default(PENDING)
 
   // Fare stored in integer paisa (1 taka = 100 paisa) to avoid float rounding
   baseFarePaisa       Int

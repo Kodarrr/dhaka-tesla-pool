@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { apiGetShareableRides, apiJoinPool, ZONES } from '@/lib/api'
 import { cn, formatBDT, ZONE_EMOJI } from '@/lib/utils'
-import type { ShareableRide, Zone } from '@/lib/api'
+import type { ShareableRide, Zone, PaymentMethod } from '@/lib/api'
 import { UserNameBadge } from '@/components/ui/user-profile-card'
 import {
   Search,
@@ -39,6 +39,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
   const { isAuthenticated, openAuthModal } = useAuth()
   const [destination, setDestination] = useState<Zone>('GULSHAN')
   const [seats, setSeats] = useState(1)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TESLAPAY')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -53,16 +54,18 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
     setError('')
     setLoading(true)
     try {
-      await apiJoinPool(pool.poolId, { destinationZone: destination, seats })
+      await apiJoinPool(pool.poolId, { destinationZone: destination, seats, paymentMethod })
       setSuccess(true)
       setTimeout(onJoined, 1200)
     } catch (err: unknown) {
-      const ae = err as { response?: { data?: { message?: string } } }
-      setError(ae.response?.data?.message ?? 'Failed to join ride. Please try again.')
+      const ae = err as { response?: { data?: { error?: string; message?: string } } }
+      const msg = ae.response?.data?.message || (ae.response?.data?.error === 'POOL_FULL' ? 'No available seats remaining in this pool' : 'Failed to join ride. Please try again.')
+      setError(msg)
     } finally {
       setLoading(false)
     }
-  }, [pool.poolId, destination, seats, isAuthenticated, openAuthModal, onJoined])
+  }, [pool.poolId, destination, seats, paymentMethod, isAuthenticated, openAuthModal, onJoined])
+
 
   if (success) {
     return (
@@ -126,6 +129,37 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
         </div>
       </div>
 
+      {/* Payment Method */}
+      <div className="space-y-1">
+        <label className="text-xs text-[#4d6080] font-medium">Payment Method</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => setPaymentMethod('TESLAPAY')}
+            className={cn(
+              'py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all duration-150',
+              paymentMethod === 'TESLAPAY'
+                ? 'border-[#00d4ff] bg-[#00d4ff]/15 text-[#00d4ff]'
+                : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
+            )}
+          >
+            ⚡ TeslaPay
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentMethod('CASH')}
+            className={cn(
+              'py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all duration-150',
+              paymentMethod === 'CASH'
+                ? 'border-[#00ff9d] bg-[#00ff9d]/15 text-[#00ff9d]'
+                : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
+            )}
+          >
+            💵 Cash
+          </button>
+        </div>
+      </div>
+
       {error && (
         <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -140,9 +174,12 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
         className="btn-primary w-full py-2.5 text-sm"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Car className="w-4 h-4" />}
-        {isAuthenticated ? 'Join Ride' : 'Log in to Join'}
+        {isAuthenticated
+          ? `Join Ride (${paymentMethod === 'TESLAPAY' ? '⚡ TeslaPay' : '💵 Cash'})`
+          : 'Log in to Join'}
       </button>
     </div>
+
   )
 }
 

@@ -2,9 +2,17 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { apiGetMyRides, apiCancelRide, apiSubmitReview, apiGetUserProfile } from '@/lib/api'
+import {
+  apiGetMyRides,
+  apiCancelRide,
+  apiSubmitReview,
+  apiGetUserProfile,
+  apiPayRideV2,
+  apiLeaveRide,
+  apiGetWallet,
+} from '@/lib/api'
 import { cn, formatBDT, formatDate, STAGE_META, ZONE_EMOJI } from '@/lib/utils'
-import type { RideRequest, DriverProfile } from '@/lib/api'
+import type { RideRequest, DriverProfile, PaymentMethod } from '@/lib/api'
 import StarRating from '@/components/ui/star-rating'
 import { UserNameBadge } from '@/components/ui/user-profile-card'
 import {
@@ -24,7 +32,11 @@ import {
   Star,
   CheckCircle2,
   MessageSquare,
+  CreditCard,
+  Zap,
+  Navigation,
 } from 'lucide-react'
+
 
 // ── DriverInfoBadge ─────────────────────────────────────────────────────────
 
@@ -180,6 +192,147 @@ function ReviewPrompt({ rideId, driverName, onDone }: ReviewPromptProps) {
   )
 }
 
+// ── PayNowSection ──────────────────────────────────────────────────────────
+
+interface PayNowSectionProps {
+  ride: RideRequest
+  isPaid: boolean
+  onPaid: (rideId: string) => void
+}
+
+function PayNowSection({ ride, isPaid, onPaid }: PayNowSectionProps) {
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  const [payingMethod, setPayingMethod] = useState<'TESLAPAY' | 'CASH' | null>(null)
+  const [error, setError] = useState('')
+
+  const fareBDT = Math.round(ride.totalFarePaisa / 100)
+
+  useEffect(() => {
+    apiGetWallet()
+      .then((w) => setWalletBalance(w.teslaPayBalancePaisa))
+      .catch(() => {})
+  }, [])
+
+  const handlePay = async (method: 'TESLAPAY' | 'CASH') => {
+    setPayingMethod(method)
+    setError('')
+    try {
+      await apiPayRideV2(ride.id, method)
+      onPaid(ride.id)
+    } catch (err: unknown) {
+      const ae = err as { response?: { data?: { message?: string; error?: string } } }
+      setError(ae.response?.data?.message ?? ae.response?.data?.error ?? 'Payment failed. Please try again.')
+    } finally {
+      setPayingMethod(null)
+    }
+  }
+
+  if (isPaid || ride.paymentStatus === 'PAID') {
+    return (
+      <div className="mt-3 p-3 rounded-xl bg-[#00ff9d]/15 border border-[#00ff9d]/40 flex items-center justify-between animate-fade-in">
+        <div className="flex items-center gap-2.5">
+          <CheckCircle2 className="w-5 h-5 text-[#00ff9d] shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-[#00ff9d]">Payment Confirmed</p>
+            <p className="text-[11px] text-[#8ba3c7]">
+              {formatBDT(fareBDT)} paid via {ride.paymentMethod === 'TESLAPAY' ? '⚡ TeslaPay' : '💵 Cash'}
+              {ride.paidAt && ` · ${formatDate(ride.paidAt)}`}
+            </p>
+          </div>
+        </div>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[#00ff9d] bg-[#00ff9d]/20 px-2.5 py-1 rounded-full border border-[#00ff9d]/30">
+          PAID ✓
+        </span>
+      </div>
+    )
+  }
+
+  if (ride.paymentStatus === 'PENDING_CONFIRMATION') {
+    return (
+      <div className="mt-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 animate-fade-in">
+        <Loader2 className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
+        <div>
+          <p className="text-xs font-bold text-amber-400">Waiting for driver to confirm cash payment.</p>
+          <p className="text-[11px] text-[#8ba3c7]">
+            You marked {formatBDT(fareBDT)} cash paid. The driver will confirm receipt shortly.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#00d4ff]/10 to-amber-500/10 border-2 border-amber-400/60 shadow-lg shadow-amber-500/10 space-y-3 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+          </span>
+          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+            Pay {formatBDT(fareBDT)}
+          </span>
+        </div>
+        <span className="text-sm font-bold text-[#f0f4ff]">{formatBDT(fareBDT)}</span>
+      </div>
+
+      <p className="text-xs text-[#8ba3c7]">
+        Your ride is completed. Choose your preferred payment method below:
+      </p>
+
+      {/* Two payment buttons */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => handlePay('TESLAPAY')}
+          disabled={Boolean(payingMethod)}
+          className="py-2.5 px-3 rounded-xl border border-[#00d4ff]/50 bg-[#00d4ff]/20 hover:bg-[#00d4ff]/30 text-xs font-bold text-[#00d4ff] flex flex-col items-center justify-center gap-0.5 transition-all disabled:opacity-50 cursor-pointer"
+        >
+          <span className="flex items-center gap-1.5">
+            {payingMethod === 'TESLAPAY' ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Zap className="w-3.5 h-3.5" />
+            )}
+            Pay with TeslaPay
+          </span>
+          <span className="text-[10px] font-normal text-[#8ba3c7]">
+            {walletBalance !== null
+              ? `(Balance: ৳${(walletBalance / 100).toFixed(0)})`
+              : 'Checking balance...'}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handlePay('CASH')}
+          disabled={Boolean(payingMethod)}
+          className="py-2.5 px-3 rounded-xl border border-emerald-500/50 bg-emerald-500/20 hover:bg-emerald-500/30 text-xs font-bold text-[#00ff9d] flex flex-col items-center justify-center gap-0.5 transition-all disabled:opacity-50 cursor-pointer"
+        >
+          <span className="flex items-center gap-1.5">
+            {payingMethod === 'CASH' ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <CreditCard className="w-3.5 h-3.5" />
+            )}
+            Pay with cash
+          </span>
+          <span className="text-[10px] font-normal text-[#8ba3c7]">
+            Driver confirms receipt
+          </span>
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── MyRides (main export) ─────────────────────────────────────────────────────
 
 export default function MyRides() {
@@ -191,6 +344,8 @@ export default function MyRides() {
   const [lastRefresh, setLast] = useState<Date | null>(null)
   const [expandedLegs, setExpandedLegs] = useState<Record<string, boolean>>({})
   const [localReviews, setLocalReviews] = useState<Record<string, { rating: number; comment?: string }>>({})
+  const [localPaid, setLocalPaid] = useState<Record<string, boolean>>({})
+  const [leavingId, setLeavingId] = useState<string | null>(null)
 
   const fetchRides = useCallback(async () => {
     if (!isAuthenticated) return
@@ -213,7 +368,7 @@ export default function MyRides() {
       return
     }
     fetchRides()
-    const interval = setInterval(fetchRides, 15_000)
+    const interval = setInterval(fetchRides, 5_000)
     return () => clearInterval(interval)
   }, [fetchRides, isAuthenticated])
 
@@ -268,6 +423,7 @@ export default function MyRides() {
           <span>{error}</span>
         </div>
       )}
+
 
       {/* Skeleton */}
       {loading && rides.length === 0 && (
@@ -378,6 +534,8 @@ export default function MyRides() {
                   </span>
                 </div>
 
+
+
                 {/* Assigned driver badge (CHANGE 6: name + star rating, clickable to full profile) */}
                 {isMatchedOrLater && driverAssigned && driverUser && (
                   <div className="mb-3">
@@ -485,8 +643,56 @@ export default function MyRides() {
                   </div>
                 )}
 
+                {/* Prepaid status & Leave Vehicle action */}
+                <div className="mt-3 p-3.5 rounded-xl bg-[#0a0e17]/60 border border-[#1f2d44]/50 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 font-bold text-[#00ff9d]">
+                      <CheckCircle2 className="w-4 h-4 text-[#00ff9d]" />
+                      <span>Prepaid via ⚡ TeslaPay ({formatBDT(fareBDT)})</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#00ff9d]/20 text-[#00ff9d] border border-[#00ff9d]/30">
+                      PAID
+                    </span>
+                  </div>
+
+                  {/* When passenger reaches their stop: Leave vehicle / End journey */}
+                  {isMatchedOrLater && !isCompleted && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setLeavingId(ride.id)
+                        try {
+                          await apiLeaveRide(ride.id)
+                          fetchRides()
+                        } catch {
+                          fetchRides()
+                        } finally {
+                          setLeavingId(null)
+                        }
+                      }}
+                      disabled={leavingId === ride.id}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-[#090d16] bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] hover:opacity-90 flex items-center justify-center gap-2 shadow-lg shadow-[#00ff9d]/20 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {leavingId === ride.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-[#090d16]" />
+                      ) : (
+                        <Navigation className="w-4 h-4 text-[#090d16]" />
+                      )}
+                      <span>🚪 Reached Destination · Leave Vehicle &amp; End Journey</span>
+                    </button>
+                  )}
+
+                  {isCompleted && (
+                    <div className="pt-1 flex items-center justify-between text-xs text-[#00ff9d]">
+                      <span className="font-semibold">Journey ended · You have left the vehicle</span>
+                      <span className="text-[11px] text-[#8ba3c7]">Arrived at {ride.destinationZone}</span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Pool seat bar + cancel */}
                 <div className="mt-3 flex items-center justify-between gap-3 pt-2 border-t border-[#1f2d44]/30">
+
                   {ride.pool ? (
                     <div className="flex items-center gap-2 text-xs flex-1">
                       <div className="flex-1 max-w-[120px] bg-[#1c2740] rounded-full overflow-hidden h-1.5">

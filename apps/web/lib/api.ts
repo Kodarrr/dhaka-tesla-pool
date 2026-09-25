@@ -62,7 +62,12 @@ export const ZONES: Zone[] = [
 
 export type RideStage =
   | 'REQUESTED' | 'MATCHED' | 'DRIVER_ARRIVED'
+  | 'IN_PROGRESS' | 'ARRIVED_AT_DESTINATION'
   | 'COMPLETED' | 'CANCELLED'
+
+export type PaymentMethod = 'TESLAPAY' | 'CASH'
+export type PaymentStatus = 'UNPAID' | 'PENDING_CONFIRMATION' | 'PAID'
+
 
 export interface EstimateRequest {
   pickupZone: Zone
@@ -134,6 +139,9 @@ export interface RideRequest {
   corridorId?: string | null
   seats: number
   stage: RideStage
+  paymentMethod?: PaymentMethod
+  paymentStatus?: PaymentStatus
+  paidAt?: string | null
   totalFarePaisa: number
   fareBreakdown?: FareBreakdown | null
   createdAt: string
@@ -154,6 +162,8 @@ export interface RideRequest {
       passengerId: string
       destinationZone: Zone
       seats: number
+      paymentMethod?: PaymentMethod
+      paymentStatus?: PaymentStatus
       passenger: { id: string; name: string }
     }>
   } | null
@@ -181,6 +191,9 @@ export interface ActivePool {
     id: string
     destinationZone: Zone
     seats: number
+    stage: RideStage
+    paymentMethod?: PaymentMethod
+    paymentStatus?: PaymentStatus
     totalFarePaisa: number
     fareBreakdown?: FareBreakdown | null
     passenger: { id: string; name: string; email: string }
@@ -216,7 +229,12 @@ export async function apiEstimate(body: EstimateRequest) {
   return data
 }
 
-export async function apiRequestRide(body: { pickupZone: Zone; destinationZone: Zone; seats: number }) {
+export async function apiRequestRide(body: {
+  pickupZone: Zone
+  destinationZone: Zone
+  seats: number
+  paymentMethod?: PaymentMethod
+}) {
   const { data } = await apiClient.post<RideRequest>('/rides/request', body)
   return data
 }
@@ -266,7 +284,7 @@ export async function apiGetShareableRides(search?: string): Promise<ShareableRi
 
 export async function apiJoinPool(
   poolId: string,
-  body: { destinationZone: Zone; seats: number }
+  body: { destinationZone: Zone; seats: number; paymentMethod?: PaymentMethod }
 ) {
   const { data } = await apiClient.post<RideRequest>(`/rides/${poolId}/join`, body)
   return data
@@ -278,10 +296,12 @@ export async function apiRequestRideWithShare(body: {
   seats: number
   openToShare: boolean
   maxShareSeats?: number
+  paymentMethod?: PaymentMethod
 }) {
   const { data } = await apiClient.post<RideRequest>('/rides/request', body)
   return data
 }
+
 
 // ─── User Profiles & Reviews ─────────────────────────────────────────────────
 
@@ -329,6 +349,14 @@ export async function apiSubmitReview(
   return data
 }
 
+export async function apiPayRide(rideId: string, paymentMethod: PaymentMethod = 'TESLAPAY') {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest }>(`/rides/${rideId}/pay`, {
+    method: paymentMethod,
+    paymentMethod,
+  })
+  return data.ride
+}
+
 export async function apiDriverAccept(poolId: string) {
   const { data } = await apiClient.post(`/driver/${poolId}/accept`)
   return data
@@ -339,9 +367,28 @@ export async function apiDriverArrived(poolId: string) {
   return data
 }
 
+export async function apiDriverArriveAtDestination(poolId: string) {
+  try {
+    const { data } = await apiClient.patch<{ success: boolean; pool: any }>(`/rides/${poolId}/arrive`)
+    return data.pool
+  } catch {
+    const { data } = await apiClient.patch<{ success: boolean; pool: any }>(`/driver/${poolId}/arrive`)
+    return data.pool
+  }
+}
+
+export async function apiCompleteRide(poolId: string) {
+  try {
+    const { data } = await apiClient.patch<{ success: boolean; pool: any }>(`/rides/${poolId}/complete`)
+    return data.pool
+  } catch {
+    const { data } = await apiClient.patch<{ success: boolean; pool: any }>(`/driver/${poolId}/complete`)
+    return data.pool
+  }
+}
+
 export async function apiDriverComplete(poolId: string) {
-  const { data } = await apiClient.post(`/driver/${poolId}/complete`)
-  return data
+  return apiCompleteRide(poolId)
 }
 
 // ─── Private User History ────────────────────────────────────────────────────
@@ -393,4 +440,78 @@ export async function apiGetDriverHistory(): Promise<DriverHistoryResponse> {
   return data
 }
 
+// ─── Wallet ───────────────────────────────────────────────────────────────────
 
+export interface WalletTransaction {
+  id: string
+  userId: string
+  amountPaisa: number
+  type: 'TOPUP' | 'RIDE_PAYMENT_DEBIT' | 'RIDE_PAYMENT_CREDIT'
+  rideRequestId?: string | null
+  createdAt: string
+}
+
+export interface WalletResponse {
+  teslaPayBalancePaisa: number
+  transactions: WalletTransaction[]
+}
+
+export async function apiGetWallet(): Promise<WalletResponse> {
+  const { data } = await apiClient.get<WalletResponse>('/wallet')
+  return data
+}
+
+export async function apiTopUpWallet(amountPaisa: number): Promise<{ teslaPayBalancePaisa: number; transaction: WalletTransaction }> {
+  const { data } = await apiClient.post('/wallet/topup', { amountPaisa })
+  return data
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: string
+  userId: string
+  type: string
+  message: string
+  rideRequestId?: string | null
+  poolId?: string | null
+  read: boolean
+  createdAt: string
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[]
+}
+
+export async function apiGetNotifications(): Promise<NotificationsResponse> {
+  const { data } = await apiClient.get<NotificationsResponse>('/notifications')
+  return data
+}
+
+export async function apiMarkNotificationRead(id: string): Promise<Notification> {
+  const { data } = await apiClient.post<Notification>(`/notifications/${id}/read`)
+  return data
+}
+
+export async function apiMarkAllNotificationsRead(): Promise<{ success: boolean }> {
+  const { data } = await apiClient.post<{ success: boolean }>('/notifications/read-all')
+  return data
+}
+
+// ─── Driver cash confirm ──────────────────────────────────────────────────────
+
+export async function apiDriverConfirmCash(rideId: string): Promise<{ success: boolean; ride: RideRequest }> {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest }>(`/driver/rides/${rideId}/confirm-cash`)
+  return data
+}
+
+// Updated pay ride to accept new PaymentMethod values (TESLAPAY | CASH)
+export async function apiPayRideV2(rideId: string, method: PaymentMethod): Promise<RideRequest> {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest }>(`/rides/${rideId}/pay`, { method })
+  return data.ride
+}
+
+export async function apiLeaveRide(rideId: string): Promise<{ success: boolean; ride: RideRequest; poolCompleted: boolean }> {
+  const { data } = await apiClient.post<{ success: boolean; ride: RideRequest; poolCompleted: boolean }>(`/rides/${rideId}/leave`)
+  return data
+}
