@@ -3,6 +3,9 @@ import { ZONES } from '../../config/zones.js';
 
 export const zoneEnum = z.enum(ZONES);
 
+export const paymentMethodEnum = z.enum(['TESLAPAY', 'CASH', 'TESLA_PAY']);
+export type PaymentMethod = z.infer<typeof paymentMethodEnum>;
+
 export const estimateRideSchema = z
   .object({
     pickupZone: zoneEnum,
@@ -27,6 +30,7 @@ export const requestRideSchema = z
     passengerCount: z.number().int().min(1).max(3).optional(),
     openToShare: z.boolean().optional().default(false),
     maxShareSeats: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional().default(0),
+    paymentMethod: paymentMethodEnum.optional().default('TESLA_PAY'),
   })
   .refine((data) => Boolean(data.destinationZone || data.dropoffZone), {
     message: 'Either destinationZone or dropoffZone must be provided',
@@ -55,11 +59,27 @@ export const availableSharesQuerySchema = z.object({
 export type AvailableSharesQuery = z.infer<typeof availableSharesQuerySchema>;
 
 export const joinPoolSchema = z.object({
+  pickupZone: zoneEnum.optional(),
+  sourceZone: zoneEnum.optional(),
   destinationZone: zoneEnum,
   seats: z.number().int().min(1).max(3).optional().default(1),
+  paymentMethod: paymentMethodEnum.optional().default('TESLA_PAY'),
 });
 
 export type JoinPoolInput = z.infer<typeof joinPoolSchema>;
+
+export const payRideSchema = z
+  .object({
+    method: paymentMethodEnum.optional(),
+    paymentMethod: paymentMethodEnum.optional(),
+  })
+  .transform((data) => {
+    const raw = data.method ?? data.paymentMethod ?? 'TESLAPAY';
+    const method = (raw === 'TESLA_PAY' ? 'TESLAPAY' : raw) as 'TESLAPAY' | 'CASH';
+    return { method };
+  });
+
+export type PayRideInput = z.infer<typeof payRideSchema>;
 
 export const shareableQuerySchema = z.object({
   search: z.string().optional(),

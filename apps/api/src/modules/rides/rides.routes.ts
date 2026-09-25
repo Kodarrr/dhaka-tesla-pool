@@ -5,6 +5,7 @@ import {
   requestRideSchema,
   availableSharesQuerySchema,
   joinPoolSchema,
+  payRideSchema,
   shareableQuerySchema,
 } from './rides.schema.js';
 import {
@@ -17,6 +18,10 @@ import {
   listShareableRides,
   joinPool,
   getPassengerHistory,
+  markArrivedAtDestination,
+  payRide,
+  leaveRide,
+  completeRideWithPaymentCheck,
   RideError,
 } from './rides.service.js';
 
@@ -108,7 +113,7 @@ export default async function rideRoutes(fastify: FastifyInstance) {
         return reply.code(201).send(ride);
       } catch (err) {
         if (err instanceof RideError) {
-          return reply.code(err.statusCode).send({ error: 'ride_error', message: err.message });
+          return reply.code(err.statusCode).send({ error: err.errorCode || 'ride_error', message: err.message });
         }
         throw err;
       }
@@ -260,4 +265,93 @@ export default async function rideRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  fastify.patch(
+    '/:id/arrive',
+    { preHandler: [fastify.authenticate, fastify.requireRole('DRIVER')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      try {
+        const pool = await markArrivedAtDestination(req.user.sub, id);
+        return reply.code(200).send({ success: true, pool });
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
+
+  fastify.post(
+    '/:id/pay',
+    { preHandler: [fastify.authenticate, fastify.requireRole('PASSENGER')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const parsed = payRideSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'invalid_request',
+          details: parsed.error.flatten(),
+        });
+      }
+      try {
+        const result = await payRide(req.user.sub, id, parsed.data.method);
+        return reply.code(200).send(result);
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
+
+  fastify.patch(
+    '/:id/complete',
+    { preHandler: [fastify.authenticate, fastify.requireRole('DRIVER')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      try {
+        const pool = await completeRideWithPaymentCheck(req.user.sub, id);
+        return reply.code(200).send({ success: true, pool });
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
+
+  fastify.post(
+    '/:id/leave',
+    { preHandler: [fastify.authenticate, fastify.requireRole('PASSENGER')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      try {
+        const { paymentMethod } = (req.body as any) || {};
+        const result = await leaveRide(req.user.sub, id, paymentMethod);
+        return reply.code(200).send(result);
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
 }
+

@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { apiEstimate, apiRequestRideWithShare, ZONES } from '@/lib/api'
 import { cn, formatBDT, ZONE_EMOJI } from '@/lib/utils'
-import type { EstimateResponse, Zone } from '@/lib/api'
+import type { EstimateResponse, Zone, PaymentMethod } from '@/lib/api'
 import {
   MapPin,
   Navigation,
@@ -35,6 +35,7 @@ export default function FareEstimator() {
   const [passengers, setPass] = useState<PassengerCount>(1)
   const [openToShare, setOpenToShare] = useState(false)
   const [maxShareSeats, setMaxShareSeats] = useState<MaxShareSeats>(1)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TESLAPAY')
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [booking, setBooking] = useState(false)
@@ -60,7 +61,7 @@ export default function FareEstimator() {
       const ae = err as { response?: { data?: { message?: string } } }
       setError(
         ae.response?.data?.message ??
-          'Failed to get fare estimate. Please check if a straight-line corridor connects these zones.'
+          'Failed to get fare estimate. Please try again.'
       )
     } finally {
       setLoading(false)
@@ -86,6 +87,7 @@ export default function FareEstimator() {
         seats: passengers,
         openToShare,
         maxShareSeats: openToShare ? maxShareSeats : 0,
+        paymentMethod,
       })
       setBooked(true)
     } catch (err: unknown) {
@@ -97,7 +99,7 @@ export default function FareEstimator() {
     } finally {
       setBooking(false)
     }
-  }, [estimate, pickup, dropoff, passengers, openToShare, maxShareSeats, isAuthenticated, openAuthModal, role])
+  }, [estimate, pickup, dropoff, passengers, openToShare, maxShareSeats, paymentMethod, isAuthenticated, openAuthModal, role])
 
   const onZoneChange =
     (fn: (z: Zone) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -434,6 +436,39 @@ export default function FareEstimator() {
             </div>
           </div>
 
+          {/* Payment Method Selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider px-1">
+              Payment Method
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('TESLAPAY')}
+                className={cn(
+                  'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-semibold transition-all duration-200',
+                  paymentMethod === 'TESLAPAY'
+                    ? 'border-[#00d4ff] bg-[#00d4ff]/15 text-[#00d4ff] shadow-sm shadow-[#00d4ff]/20'
+                    : 'border-[#1f2d44] bg-[#0a0e17]/60 text-[#8ba3c7] hover:border-[#1f2d44]/80'
+                )}
+              >
+                <span>⚡ TeslaPay</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('CASH')}
+                className={cn(
+                  'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-semibold transition-all duration-200',
+                  paymentMethod === 'CASH'
+                    ? 'border-[#00ff9d] bg-[#00ff9d]/15 text-[#00ff9d] shadow-sm shadow-[#00ff9d]/20'
+                    : 'border-[#1f2d44] bg-[#0a0e17]/60 text-[#8ba3c7] hover:border-[#1f2d44]/80'
+                )}
+              >
+                <span>💵 Cash</span>
+              </button>
+            </div>
+          </div>
+
           {/* Book button / success */}
           {booked ? (
             <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-[#00ff9d]/10 border border-[#00ff9d]/30 animate-fade-in">
@@ -462,7 +497,7 @@ export default function FareEstimator() {
                 <Car className="w-5 h-5" />
               )}
               {isAuthenticated
-                ? `Book Tesla Pool — ${formatBDT(estimate.perPersonFareBDT)}/person`
+                ? `Book Tesla Pool — ${formatBDT(estimate.perPersonFareBDT)}/person (${paymentMethod === 'TESLAPAY' ? '⚡ TeslaPay' : '💵 Cash'})`
                 : 'Log in to Book Tesla Pool'}
             </button>
           )}
@@ -471,4 +506,3 @@ export default function FareEstimator() {
     </div>
   )
 }
-
