@@ -13,20 +13,17 @@ export default function Navbar() {
   return (
     <>
       <header className="fixed top-0 inset-x-0 z-50">
-      <div className="bg-[#0f1521]/70 backdrop-blur-xl border-b border-[#1f2d44]/40">
+      <div className="bg-dhaka-night/85 backdrop-blur-xl border-b border-dhaka-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-90 transition-opacity">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, #00d4ff, #00ff9d)' }}
-            >
-              <Zap className="w-4 h-4 text-[#090d16]" strokeWidth={2.5} />
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-dhaka-cobalt text-white shadow-dhaka-cta">
+              <Zap className="w-4 h-4 text-white" strokeWidth={2.5} />
             </div>
             <div className="hidden sm:block">
-              <span className="font-bold text-[#f0f4ff] tracking-tight">Dhaka</span>
-              <span className="font-bold bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] bg-clip-text text-transparent ml-1">Tesla Pool</span>
+              <span className="font-bold text-dhaka-text-headline tracking-tight text-base">Dhaka</span>
+              <span className="font-semibold text-blue-400 ml-1.5 text-base">Tesla Pool</span>
             </div>
-            <span className="sm:hidden font-bold bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] bg-clip-text text-transparent text-sm">DTP</span>
+            <span className="sm:hidden font-bold text-blue-400 text-sm">DTP</span>
           </Link>
 
           <div className="flex items-center gap-3">
@@ -34,37 +31,37 @@ export default function Navbar() {
               <>
                 <Link
                   href="/profile"
-                  className="flex items-center gap-2 min-w-0 group hover:opacity-90 transition-opacity cursor-pointer"
+                  className="flex items-center gap-2.5 min-w-0 group hover:opacity-90 transition-opacity cursor-pointer"
                   title="View your profile & history"
                 >
                   <div
                     className={cn(
-                      'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ring-1 ring-transparent group-hover:ring-[#00d4ff]/40 transition-all',
+                      'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ring-1 ring-transparent group-hover:ring-blue-400/40 transition-all text-white',
                       isPassenger
-                        ? 'bg-gradient-to-br from-cyan-500 to-blue-600'
-                        : 'bg-gradient-to-br from-green-500 to-emerald-600'
+                        ? 'bg-blue-600'
+                        : 'bg-emerald-600'
                     )}
                   >
                     {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="hidden sm:block text-sm text-[#f0f4ff] font-medium max-w-[140px] truncate group-hover:text-[#00d4ff] transition-colors">
+                  <span className="hidden sm:block text-xs text-dhaka-text-headline font-medium max-w-[140px] truncate group-hover:text-blue-300 transition-colors">
                     {user.name}
                   </span>
                   <span
                     className={cn(
-                      'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border',
+                      'text-[11px] font-medium px-2 py-0.5 rounded-full border',
                       isPassenger
-                        ? 'text-[#00d4ff] bg-[#00d4ff]/10 border-[#00d4ff]/30'
-                        : 'text-[#00ff9d] bg-[#00ff9d]/10 border-[#00ff9d]/30'
+                        ? 'text-blue-300 bg-blue-500/10 border-blue-500/25'
+                        : 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
                     )}
                   >
-                    {user.role}
+                    {user.role === 'DRIVER' ? 'Driver' : 'Passenger'}
                   </span>
                 </Link>
                 <button
                   type="button"
                   onClick={logout}
-                  className="btn-secondary px-3 py-2 text-xs"
+                  className="btn-secondary px-3 py-1.5 text-xs font-medium"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   Log Out
@@ -75,7 +72,7 @@ export default function Navbar() {
                 <button
                   type="button"
                   onClick={() => openAuthModal('login')}
-                  className="btn-secondary px-3 py-2 text-xs"
+                  className="btn-secondary px-3 py-1.5 text-xs font-medium"
                 >
                   <LogIn className="w-3.5 h-3.5" />
                   Login
@@ -83,7 +80,7 @@ export default function Navbar() {
                 <button
                   type="button"
                   onClick={() => openAuthModal('signup')}
-                  className="btn-primary px-3 py-2 text-xs"
+                  className="btn-primary px-3.5 py-1.5 text-xs font-medium shadow-none"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   Sign Up
@@ -96,10 +93,10 @@ export default function Navbar() {
 
       <div
         className={cn(
-          'h-0.5 w-full transition-all duration-500',
+          'h-[1px] w-full transition-all duration-500',
           isPassenger
-            ? 'bg-gradient-to-r from-transparent via-[#00d4ff] to-transparent'
-            : 'bg-gradient-to-r from-transparent via-[#00ff9d] to-transparent'
+            ? 'bg-gradient-to-r from-transparent via-blue-500/40 to-transparent'
+            : 'bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent'
         )}
       />
       </header>

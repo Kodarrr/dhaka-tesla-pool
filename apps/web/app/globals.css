@@ -17,97 +17,101 @@
   }
 
   body {
-    background-color: #090d16;
-    color: #f0f4ff;
-    font-family: 'Inter', system-ui, sans-serif;
+    background-color: #0B111E;
+    color: #F8FAFC;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #0f1521; }
-  ::-webkit-scrollbar-thumb { background: #1f2d44; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #00d4ff44; }
-  ::selection { background: rgba(0, 212, 255, 0.25); color: #f0f4ff; }
+  ::-webkit-scrollbar-track { background: #0B111E; }
+  ::-webkit-scrollbar-thumb { background: #233352; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #32476E; }
+  ::selection { background: rgba(37, 99, 235, 0.35); color: #F8FAFC; }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-[#161e2e]/60 backdrop-blur-md border border-[#1f2d44]/50 rounded-2xl;
-    box-shadow: 0 4px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+    @apply bg-[#131D2F]/90 backdrop-blur-md border border-[#233352] rounded-2xl;
+    box-shadow: 0 4px 24px -1px rgba(5, 10, 20, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   .glass-card-sm {
-    @apply bg-[#161e2e]/40 backdrop-blur-sm border border-[#1f2d44]/30 rounded-xl;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.3);
+    @apply bg-[#131D2F]/70 backdrop-blur-sm border border-[#233352]/80 rounded-xl;
+    box-shadow: 0 2px 12px rgba(5, 10, 20, 0.3);
   }
 
   .btn-primary {
     @apply relative overflow-hidden inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200;
-    background: linear-gradient(135deg, #00d4ff, #00ff9d);
-    color: #090d16;
-    box-shadow: 0 4px 20px rgba(0,212,255,0.35);
+    background: linear-gradient(135deg, #2563EB, #1D4ED8);
+    color: #FFFFFF;
+    box-shadow: 0 4px 20px -2px rgba(37, 99, 235, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
   .btn-primary:hover:not(:disabled) {
-    box-shadow: 0 6px 30px rgba(0,212,255,0.5);
+    background: linear-gradient(135deg, #3B82F6, #2563EB);
+    box-shadow: 0 6px 24px -2px rgba(37, 99, 235, 0.6);
     transform: translateY(-1px);
   }
   .btn-primary:active:not(:disabled) { transform: translateY(0); }
+  .btn-primary:focus-visible {
+    outline: none;
+    ring: 2px;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
+  }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm border transition-all duration-200;
-    @apply border-[#1f2d44]/60 text-[#8ba3c7] bg-[#1c2740]/50;
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium text-sm border transition-all duration-200;
+    @apply border-[#233352] text-[#94A3B8] bg-[#16223B]/60;
   }
-  .btn-secondary:hover { @apply border-[#00d4ff]/40 text-[#00d4ff] bg-[#1c2740]; }
+  .btn-secondary:hover { @apply border-[#32476E] text-[#F8FAFC] bg-[#1A2740]; }
+  .btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  }
 
   .btn-green {
     @apply relative overflow-hidden inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200;
-    background: linear-gradient(135deg, #00ff9d, #00cc7a);
-    color: #090d16;
-    box-shadow: 0 4px 20px rgba(0,255,157,0.3);
+    background: linear-gradient(135deg, #10B981, #059669);
+    color: #FFFFFF;
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
   }
-  .btn-green:hover:not(:disabled) { box-shadow: 0 6px 30px rgba(0,255,157,0.45); transform: translateY(-1px); }
+  .btn-green:hover:not(:disabled) { box-shadow: 0 6px 22px rgba(16, 185, 129, 0.45); transform: translateY(-1px); }
 
   .status-badge {
-    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider border;
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border;
   }
 
   .dot-online {
-    @apply w-2 h-2 rounded-full bg-[#00ff9d] shrink-0;
-    animation: glow-dot 2s ease-in-out infinite alternate;
+    @apply w-2 h-2 rounded-full bg-[#10B981] shrink-0;
+    animation: glow-dot 2.5s ease-in-out infinite alternate;
   }
 
   .zone-select {
-    @apply w-full px-4 py-3 rounded-xl border border-[#1f2d44]/60 bg-[#1c2740]/70 text-[#f0f4ff] text-sm outline-none transition-all duration-150;
+    @apply w-full px-4 py-3 rounded-xl border border-[#233352] bg-[#16223B] text-[#F8FAFC] text-sm outline-none transition-all duration-150;
     appearance: none;
     -webkit-appearance: none;
   }
   .zone-select:focus {
-    @apply border-[#00d4ff]/60;
-    box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+    @apply border-[#2563EB];
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
   }
 
   .input-field {
-    @apply w-full px-4 py-3 rounded-xl border border-[#1f2d44]/60 bg-[#1c2740]/70 text-[#f0f4ff] text-sm outline-none placeholder:text-[#4d6080] transition-all duration-150;
+    @apply w-full px-4 py-3 rounded-xl border border-[#233352] bg-[#16223B] text-[#F8FAFC] text-sm outline-none placeholder:text-[#64748B] transition-all duration-150;
   }
   .input-field:focus {
-    @apply border-[#00d4ff]/60;
-    box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+    @apply border-[#2563EB];
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
   }
 
-  .divider { @apply w-full h-px bg-gradient-to-r from-transparent via-[#1f2d44] to-transparent my-4; }
+  .divider { @apply w-full h-px bg-gradient-to-r from-transparent via-[#233352] to-transparent my-4; }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-[#00d4ff] to-[#00ff9d] bg-clip-text text-transparent;
-  }
-
-  .scan-bg {
-    background-image: repeating-linear-gradient(
-      0deg, transparent, transparent 2px,
-      rgba(0,212,255,0.01) 2px, rgba(0,212,255,0.01) 4px
-    );
+    @apply bg-gradient-to-r from-blue-300 via-sky-200 to-indigo-200 bg-clip-text text-transparent;
   }
 }
 

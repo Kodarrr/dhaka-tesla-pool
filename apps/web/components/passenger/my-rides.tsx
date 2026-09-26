@@ -241,8 +241,8 @@ function PayNowSection({ ride, isPaid, onPaid }: PayNowSectionProps) {
             </p>
           </div>
         </div>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#00ff9d] bg-[#00ff9d]/20 px-2.5 py-1 rounded-full border border-[#00ff9d]/30">
-          PAID ✓
+        <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/25">
+          Paid ✓
         </span>
       </div>
     )
@@ -253,8 +253,8 @@ function PayNowSection({ ride, isPaid, onPaid }: PayNowSectionProps) {
       <div className="mt-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 animate-fade-in">
         <Loader2 className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
         <div>
-          <p className="text-xs font-bold text-amber-400">Waiting for driver to confirm cash payment.</p>
-          <p className="text-[11px] text-[#8ba3c7]">
+          <p className="text-xs font-medium text-amber-400">Waiting for driver to confirm cash payment.</p>
+          <p className="text-[11px] text-dhaka-text-body">
             You marked {formatBDT(fareBDT)} cash paid. The driver will confirm receipt shortly.
           </p>
         </div>
@@ -263,18 +263,18 @@ function PayNowSection({ ride, isPaid, onPaid }: PayNowSectionProps) {
   }
 
   return (
-    <div className="mt-3 p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#00d4ff]/10 to-amber-500/10 border-2 border-amber-400/60 shadow-lg shadow-amber-500/10 space-y-3 animate-fade-in">
+    <div className="mt-3 p-4 rounded-xl bg-dhaka-elevated/80 border border-amber-400/40 shadow-dhaka-card space-y-3 animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
           </span>
-          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+          <span className="text-xs font-semibold text-amber-400">
             Pay {formatBDT(fareBDT)}
           </span>
         </div>
-        <span className="text-sm font-bold text-[#f0f4ff]">{formatBDT(fareBDT)}</span>
+        <span className="text-sm font-bold text-dhaka-text-headline">{formatBDT(fareBDT)}</span>
       </div>
 
       <p className="text-xs text-[#8ba3c7]">
@@ -402,9 +402,9 @@ export default function MyRides() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Car className="w-4 h-4 text-[#00d4ff]" />
-          <h2 className="text-sm font-semibold text-[#f0f4ff] uppercase tracking-wider">
-            My Ride Requests
+          <Car className="w-4 h-4 text-blue-400" />
+          <h2 className="text-sm font-semibold text-dhaka-text-headline">
+            My ride requests
           </h2>
         </div>
         <div className="flex items-center gap-3">

@@ -157,8 +157,8 @@ export default function ActivePools() {
       {/* Feed header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-[#00ff9d]" />
-          <h3 className="text-sm font-semibold text-[#f0f4ff] uppercase tracking-wider">Active Route Pools</h3>
+          <Activity className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold text-dhaka-text-headline">Active corridor pools</h3>
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
@@ -294,16 +294,16 @@ export default function ActivePools() {
                 {sortedRiders.length > 0 && (
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider flex items-center gap-1.5">
-                        <Navigation className="w-3 h-3 text-[#00ff9d]" />
-                        Passengers &amp; Drop-off Stops
+                      <p className="text-xs font-medium text-dhaka-text-body flex items-center gap-1.5">
+                        <Navigation className="w-3 h-3 text-emerald-400" />
+                        Passenger manifest &amp; drop-off stops
                       </p>
                       <span
                         className={cn(
-                          'text-[10px] font-bold px-2 py-0.5 rounded-full border',
+                          'text-[10px] font-medium px-2 py-0.5 rounded-full border',
                           allCompleted
-                            ? 'bg-[#00ff9d]/20 text-[#00ff9d] border-[#00ff9d]/30'
-                            : 'bg-[#00d4ff]/20 text-[#00d4ff] border-[#00d4ff]/30'
+                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                            : 'bg-blue-500/10 text-blue-300 border-blue-500/25'
                         )}
                       >
                         {allCompleted ? 'All journeys ended' : `${completedRiders.length}/${sortedRiders.length} reached stop`}

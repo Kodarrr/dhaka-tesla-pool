@@ -163,12 +163,12 @@ export default function StaticRouteMap() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Compass className="w-5 h-5 text-[#00d4ff]" />
-              <h2 className="text-base font-bold text-[#f0f4ff] uppercase tracking-wider">
-                Dhaka Tesla Pool · Static Route &amp; Zone Guide
+              <Compass className="w-5 h-5 text-blue-400" />
+              <h2 className="text-base font-bold text-dhaka-text-headline">
+                Dhaka Tesla Pool · Route &amp; Zone Guide
               </h2>
             </div>
-            <p className="text-xs text-[#8ba3c7] mt-1">
+            <p className="text-xs text-dhaka-text-body mt-1">
               Interactive reference map showing stop order, adjacent legs, and distances between all 7 Dhaka zones.
             </p>
           </div>
@@ -458,9 +458,9 @@ export default function StaticRouteMap() {
 
         {/* Before / After Corridor Sequences */}
         <div className="space-y-3 pt-2">
-          <h4 className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider flex items-center gap-1.5">
-            <ArrowLeftRight className="w-3.5 h-3.5 text-[#00ff9d]" />
-            Route Progression (Before &amp; After {ZONE_COORDS[selectedZone]?.name})
+          <h4 className="text-xs font-semibold text-dhaka-text-headline flex items-center gap-1.5">
+            <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />
+            Route progression (before &amp; after {ZONE_COORDS[selectedZone]?.name})
           </h4>
 
           {corridorSequences.length > 0 ? (
@@ -543,10 +543,10 @@ export default function StaticRouteMap() {
         </div>
 
         {/* Direct Distances from Selected Zone */}
-        <div className="mt-4 pt-4 border-t border-[#1f2d44]/50">
-          <h4 className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-[#00d4ff]" />
-            Road Distance from {ZONE_COORDS[selectedZone]?.name || selectedZone} to other zones
+        <div className="mt-4 pt-4 border-t border-dhaka-border/60">
+          <h4 className="text-xs font-semibold text-dhaka-text-headline mb-2.5 flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-blue-400" />
+            Road distance from {ZONE_COORDS[selectedZone]?.name || selectedZone} to other zones
           </h4>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             {ZONES.filter((z) => z !== selectedZone).map((other) => {
@@ -555,13 +555,13 @@ export default function StaticRouteMap() {
                 <div
                   key={other}
                   onClick={() => setSelectedZone(other)}
-                  className="glass-card-sm p-2.5 rounded-xl border border-[#1f2d44]/50 cursor-pointer hover:border-[#00d4ff]/60 transition-all text-center"
+                  className="glass-card-sm p-2.5 rounded-xl border border-dhaka-border/80 cursor-pointer hover:border-blue-400/60 transition-all text-center"
                 >
-                  <p className="text-[11px] font-semibold text-[#f0f4ff] truncate">
+                  <p className="text-[11px] font-medium text-dhaka-text-headline truncate">
                     {ZONE_EMOJI[other]} {other}
                   </p>
-                  <p className="text-xs font-bold text-[#00ff9d] mt-1">{dist} km</p>
-                  <p className="text-[9px] text-[#4d6080] mt-0.5">Click to view</p>
+                  <p className="text-xs font-bold text-emerald-400 mt-1">{dist} km</p>
+                  <p className="text-[9px] text-dhaka-text-dim mt-0.5">Click to view</p>
                 </div>
               )
             })}
@@ -571,8 +571,8 @@ export default function StaticRouteMap() {
 
       {/* Corridor Linear Steppers (Clean Overview) */}
       <div className="glass-card p-5 space-y-4">
-        <h3 className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider flex items-center gap-1.5">
-          <Layers className="w-4 h-4 text-[#00ff9d]" /> Complete Corridor Progression Steppers
+        <h3 className="text-xs font-semibold text-dhaka-text-headline flex items-center gap-1.5">
+          <Layers className="w-4 h-4 text-emerald-400" /> Complete corridor progression steppers
         </h3>
 
         <div className="space-y-4">
