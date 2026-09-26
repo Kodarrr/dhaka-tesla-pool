@@ -148,18 +148,18 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
 
   if (success) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#00ff9d]/10 border border-[#00ff9d]/30 animate-fade-in">
-        <CheckCircle2 className="w-4 h-4 text-[#00ff9d] shrink-0" />
-        <p className="text-xs font-semibold text-[#00ff9d]">Joined! Check My Rides for your live status.</p>
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 animate-fade-in">
+        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <p className="text-xs font-medium text-emerald-400">Joined corridor pool! Live status is available in My Rides.</p>
       </div>
     )
   }
 
   return (
-    <div className="mt-3 pt-3 border-t border-[#1f2d44]/40 space-y-3">
+    <div className="mt-3 pt-3 border-t border-dhaka-border/60 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-[#4d6080] uppercase tracking-wider">Join this ride</p>
-        <span className="text-[11px] text-[#00d4ff] flex items-center gap-1 font-medium">
+        <p className="text-xs font-medium text-dhaka-text-body">Join this corridor ride</p>
+        <span className="text-[11px] text-blue-400 flex items-center gap-1 font-medium">
           <Navigation className="w-3 h-3" /> Vehicle currently at: {pool.currentLocation ?? pool.pickupZone}
         </span>
       </div>
@@ -506,14 +506,14 @@ export default function BrowseSharedRides() {
       {/* Search bar */}
       <div className="glass-card p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Search className="w-4 h-4 text-[#00d4ff]" />
-          <h2 className="text-sm font-semibold text-[#f0f4ff] uppercase tracking-wider">
-            Browse Open Rides
+          <Search className="w-4 h-4 text-blue-400" />
+          <h2 className="text-sm font-semibold text-dhaka-text-headline">
+            Browse open corridor rides
           </h2>
           <button
             type="button"
             onClick={() => fetchRides(debouncedSearch)}
-            className="ml-auto text-[#4d6080] hover:text-[#00d4ff] transition-colors"
+            className="ml-auto text-dhaka-text-dim hover:text-blue-400 transition-colors"
             title="Refresh"
           >
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
@@ -521,13 +521,13 @@ export default function BrowseSharedRides() {
         </div>
 
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4d6080] pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dhaka-text-dim pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by pickup or destination zone…"
-            className="w-full bg-[#0a0e17]/60 border border-[#1f2d44]/50 rounded-xl py-2.5 pl-9 pr-4 text-sm text-[#f0f4ff] placeholder-[#4d6080] focus:outline-none focus:border-[#00d4ff]/50 focus:ring-1 focus:ring-[#00d4ff]/20 transition-all"
+            className="w-full bg-dhaka-elevated border border-dhaka-border rounded-xl py-2.5 pl-9 pr-4 text-sm text-dhaka-text-headline placeholder-dhaka-text-dim focus:outline-none focus:border-dhaka-cobalt focus:ring-1 focus:ring-dhaka-cobalt transition-all"
           />
         </div>
 

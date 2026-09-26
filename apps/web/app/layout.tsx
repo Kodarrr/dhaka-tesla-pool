@@ -13,13 +13,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#090d16',
+  themeColor: '#0B111E',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`dark ${inter.className}`}>
-      <body className="min-h-dvh bg-[#090d16] text-[#f0f4ff] antialiased">
+      <body className="min-h-dvh bg-dhaka-night text-dhaka-text-headline antialiased selection:bg-dhaka-cobalt/30">
         <AuthProvider>
           {children}
         </AuthProvider>
