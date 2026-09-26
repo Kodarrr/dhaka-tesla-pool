@@ -35,6 +35,7 @@ import {
   CreditCard,
   Zap,
   Navigation,
+  X,
 } from 'lucide-react'
 
 
@@ -381,8 +382,13 @@ export default function MyRides() {
       await apiCancelRide(rideId)
       await fetchRides()
     } catch (err: unknown) {
-      const ae = err as { response?: { data?: { message?: string } } }
-      setError(ae.response?.data?.message ?? 'Failed to cancel ride.')
+      const ae = err as { response?: { data?: { message?: string; error?: string } } }
+      const serverMsg = ae.response?.data?.message || ae.response?.data?.error
+      if (serverMsg) {
+        setError(serverMsg)
+      } else {
+        setError('Failed to cancel ride. Please try again.')
+      }
     } finally {
       setCancellingId(null)
     }
@@ -420,9 +426,19 @@ export default function MyRides() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{error}</span>
+        <div className="flex items-start justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm animate-fade-in">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            className="text-[#8ba3c7] hover:text-[#f0f4ff] p-0.5 transition-colors shrink-0"
+            title="Dismiss"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -478,7 +494,8 @@ export default function MyRides() {
             const fareBDT = Math.round(ride.totalFarePaisa / 100)
             const breakdown = ride.fareBreakdown
             const isExpanded = Boolean(expandedLegs[ride.id])
-            const canCancel = ['REQUESTED', 'MATCHED'].includes(ride.stage)
+            const isDriverAccepted = ride.stage !== 'REQUESTED' || Boolean(ride.pool?.tesla?.driver)
+            const canCancel = ride.stage === 'REQUESTED' && !isDriverAccepted
             const driverAssigned = ride.pool?.tesla
             const driverUser = ride.pool?.tesla?.driver
             const isMatched = ride.stage === 'MATCHED'
@@ -809,6 +826,13 @@ export default function MyRides() {
                       )}
                       Cancel Ride
                     </button>
+                  )}
+
+                  {!canCancel && isDriverAccepted && !['COMPLETED', 'CANCELLED'].includes(ride.stage) && (
+                    <span className="text-[11px] text-[#4d6080] flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0f172a]/60 border border-[#1f2d44]/40">
+                      <span className="text-[#00ff9d]">✓</span>
+                      <span>Driver accepted • Cancellation locked</span>
+                    </span>
                   )}
                 </div>
 

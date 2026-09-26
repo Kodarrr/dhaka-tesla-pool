@@ -16,6 +16,7 @@ import {
   findCorridorById,
   findCorridorForRiders,
   getDistance,
+  canJoinPoolRoute,
 } from '../../config/zones.js';
 import {
   EstimateRideInput,
@@ -502,6 +503,36 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       throw new RideError(400, 'Pickup and destination cannot be the same zone');
     }
 
+    // Direction validation: reject reverse-direction or incompatible routes
+    const directionCheck = canJoinPoolRoute(
+      {
+        corridorId: locked.corridorId,
+        pickupZone: locked.pickupZone as Zone,
+        currentLocation: locked.currentLocation,
+        activeRiders: existingRequests.map((r) => ({
+          pickupZone: r.pickupZone,
+          destinationZone: r.destinationZone,
+        })),
+      },
+      joinerPickup,
+      destinationZone
+    );
+
+    if (!directionCheck.canJoin) {
+      throw new RideError(
+        400,
+        directionCheck.reason || 'Cannot join ride: route is in an incompatible or reverse direction'
+      );
+    }
+
+    if (directionCheck.corridor && !locked.corridorId) {
+      await tx.pool.update({
+        where: { id: poolId },
+        data: { corridorId: directionCheck.corridor.id },
+      });
+      locked.corridorId = directionCheck.corridor.id;
+    }
+
     // Fare calculation: "only that part will be the fare will be shared"
     const distanceKm = getDistance(joinerPickup, destinationZone);
     const soloFareBDT = distanceKm * PER_KM_RATE_BDT;
@@ -659,6 +690,7 @@ export async function listShareableRides(search?: string) {
       rideRequests: {
         where: { stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] } },
         select: {
+          pickupZone: true,
           destinationZone: true,
           seats: true,
           passenger: {
@@ -673,20 +705,32 @@ export async function listShareableRides(search?: string) {
   // Filter in-memory: seatsTaken < seatsCap (Prisma can't compare two fields directly)
   return pools
     .filter((p) => p.seatsTaken < p.seatsCap)
-    .map((p) => ({
-      poolId: p.id,
-      pickupZone: p.pickupZone,
-      currentLocation: p.currentLocation || p.pickupZone,
-      stage: p.stage,
-      seatsTaken: p.seatsTaken,
-      seatsCap: p.seatsCap,
-      seatsAvailable: p.seatsCap - p.seatsTaken,
-      riders: p.rideRequests.map((r) => ({
-        destinationZone: r.destinationZone,
-        seats: r.seats,
-        passenger: r.passenger,
-      })),
-    }));
+    .map((p) => {
+      let corridor = p.corridorId ? findCorridorById(p.corridorId) : undefined;
+      if (!corridor && p.rideRequests.length > 0) {
+        const dZone = p.rideRequests[0].destinationZone as Zone;
+        corridor = findCorridorForRoute(p.pickupZone as Zone, dZone) ?? undefined;
+      }
+
+      return {
+        poolId: p.id,
+        pickupZone: p.pickupZone,
+        currentLocation: p.currentLocation || p.pickupZone,
+        corridorId: corridor?.id ?? p.corridorId ?? null,
+        corridorName: corridor?.name ?? null,
+        corridorZones: corridor?.zones ? Array.from(corridor.zones) : null,
+        stage: p.stage,
+        seatsTaken: p.seatsTaken,
+        seatsCap: p.seatsCap,
+        seatsAvailable: p.seatsCap - p.seatsTaken,
+        riders: p.rideRequests.map((r) => ({
+          pickupZone: r.pickupZone,
+          destinationZone: r.destinationZone,
+          seats: r.seats,
+          passenger: r.passenger,
+        })),
+      };
+    });
 }
 
 /**
@@ -712,8 +756,16 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
       throw new RideError(400, 'Ride is already cancelled');
     }
 
-    if (['STARTED', 'COMPLETED'].includes(ride.stage)) {
-      throw new RideError(400, `Cannot cancel a ride that is ${ride.stage.toLowerCase()}`);
+    // A passenger can only cancel if no driver has accepted the ride yet
+    const hasDriverAccepted =
+      ride.stage !== 'REQUESTED' ||
+      (ride.pool && (ride.pool.stage !== 'REQUESTED' || ride.pool.teslaId !== null));
+
+    if (hasDriverAccepted) {
+      throw new RideError(
+        400,
+        'Cannot cancel ride: A driver has already accepted your ride. Cancellations are only allowed before a driver accepts.'
+      );
     }
 
     // Cancel the ride request
@@ -771,20 +823,44 @@ export async function cancelRide(passengerId: string, rideRequestId: string) {
       data: { seatsTaken: newSeatsTaken },
     });
 
-    // Recompute fares for remaining pool members
-    const corridor = lockedPool?.corridorId ? findCorridorById(lockedPool.corridorId) : null;
-    if (corridor) {
-      await persistPoolFares(
-        tx,
-        corridor,
-        ride.pickupZone as Zone,
-        remainingRequests.map((r) => ({
-          id: r.id,
-          pickupZone: r.pickupZone,
-          destinationZone: r.destinationZone,
-          seats: r.seats,
-        }))
-      );
+    // Recompute / adjust fares for remaining pool members safely:
+    try {
+      if (remainingRequests.length === 1) {
+        // Only 1 rider left: reverts to solo fare (0 pool discount)
+        const sole = remainingRequests[0];
+        const distKm = getDistance(sole.pickupZone as Zone, sole.destinationZone as Zone);
+        const soloFareBDT = distKm * PER_KM_RATE_BDT * sole.seats;
+        const soloFarePaisa = soloFareBDT * 100;
+        await tx.rideRequest.update({
+          where: { id: sole.id },
+          data: {
+            poolDiscountPaisa: 0,
+            distanceChargePaisa: soloFarePaisa,
+            totalFarePaisa: soloFarePaisa,
+          },
+        });
+      } else if (remainingRequests.length > 1) {
+        // Multiple riders remaining: if all share the same pickup, recompute corridor pooling
+        const corridor = lockedPool?.corridorId ? findCorridorById(lockedPool.corridorId) : null;
+        const firstPickup = remainingRequests[0].pickupZone as Zone;
+        const allSamePickup = remainingRequests.every((r) => r.pickupZone === firstPickup);
+
+        if (corridor && allSamePickup) {
+          await persistPoolFares(
+            tx,
+            corridor,
+            firstPickup,
+            remainingRequests.map((r) => ({
+              id: r.id,
+              pickupZone: r.pickupZone,
+              destinationZone: r.destinationZone,
+              seats: r.seats,
+            }))
+          );
+        }
+      }
+    } catch {
+      // Safe fallback: fare recalculation error must never block ride cancellation
     }
 
     return { id: rideRequestId, stage: 'CANCELLED', deleted: true, poolDeleted: false };

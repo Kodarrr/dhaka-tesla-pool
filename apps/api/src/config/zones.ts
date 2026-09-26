@@ -141,7 +141,7 @@ export function findCorridorById(corridorId: string): Corridor | undefined {
   return CORRIDORS.find((c) => c.id === corridorId);
 }
 
-function isForwardOnCorridor(corridor: Corridor, pickupZone: Zone, destinationZone: Zone): boolean {
+export function isForwardOnCorridor(corridor: Corridor, pickupZone: Zone, destinationZone: Zone): boolean {
   const pickupIdx = corridor.zones.indexOf(pickupZone);
   const destIdx = corridor.zones.indexOf(destinationZone);
   return pickupIdx !== -1 && destIdx !== -1 && pickupIdx < destIdx;
@@ -270,4 +270,123 @@ export function getCorridorLegs(
   }
 
   return legs;
+}
+
+export interface PoolDirectionCheckInput {
+  corridorId?: string | null;
+  pickupZone: Zone;
+  currentLocation?: string | null;
+  activeRiders?: Array<{ pickupZone?: string; destinationZone: string }>;
+}
+
+/**
+ * Validates that a passenger's desired pickup and destination match the pool's route direction.
+ * Rejects reverse-direction joins (e.g. Mohakhali -> Banani on a Southbound ride from Uttara -> Bashundhara).
+ * Also rejects pickups at zones the vehicle has already passed based on currentLocation.
+ */
+export function canJoinPoolRoute(
+  pool: PoolDirectionCheckInput,
+  joinerPickup: Zone,
+  joinerDestination: Zone
+): { canJoin: boolean; reason?: string; corridor?: Corridor } {
+  if (joinerPickup === joinerDestination) {
+    return { canJoin: false, reason: 'Pickup and destination cannot be the same zone' };
+  }
+
+  // 1. Try to find the pool's corridor:
+  let corridor: Corridor | undefined;
+  if (pool.corridorId) {
+    corridor = findCorridorById(pool.corridorId);
+  }
+
+  const activeRiders =
+    pool.activeRiders?.filter(
+      (r) => isZone(r.destinationZone) && (!r.pickupZone || isZone(r.pickupZone))
+    ) ?? [];
+
+  if (!corridor && activeRiders.length > 0) {
+    // Find a corridor where every active rider is moving forward
+    corridor = CORRIDORS.find((c) =>
+      activeRiders.every((r) => {
+        const pZone = (r.pickupZone as Zone) || pool.pickupZone;
+        const dZone = r.destinationZone as Zone;
+        return isForwardOnCorridor(c, pZone, dZone);
+      })
+    );
+  }
+
+  if (!corridor && activeRiders.length > 0) {
+    const firstDest = activeRiders[0].destinationZone as Zone;
+    const firstPickup = (activeRiders[0].pickupZone as Zone) || pool.pickupZone;
+    corridor = findCorridorForRoute(firstPickup, firstDest) ?? undefined;
+  }
+
+  // If still no corridor, try pool.pickupZone and first active destination if available
+  if (!corridor && pool.pickupZone) {
+    const joinerCorridor = findCorridorForRoute(joinerPickup, joinerDestination);
+    if (!activeRiders.length) {
+      return { canJoin: true, corridor: joinerCorridor ?? undefined };
+    }
+  }
+
+  // 2. If a corridor is established for this pool:
+  if (corridor) {
+    const pIdx = corridor.zones.indexOf(joinerPickup);
+    const dIdx = corridor.zones.indexOf(joinerDestination);
+
+    if (pIdx === -1) {
+      return {
+        canJoin: false,
+        reason: `Pickup zone ${joinerPickup} is not on the route (${corridor.name})`,
+      };
+    }
+    if (dIdx === -1) {
+      return {
+        canJoin: false,
+        reason: `Destination zone ${joinerDestination} is not on the route (${corridor.name})`,
+      };
+    }
+    if (pIdx >= dIdx) {
+      return {
+        canJoin: false,
+        reason: `Cannot join: ${joinerPickup} to ${joinerDestination} is in the reverse direction of this ride (${corridor.name})`,
+      };
+    }
+
+    // Check if vehicle has already passed joinerPickup
+    if (pool.currentLocation && isZone(pool.currentLocation)) {
+      const currentIdx = corridor.zones.indexOf(pool.currentLocation as Zone);
+      if (currentIdx !== -1 && pIdx < currentIdx) {
+        return {
+          canJoin: false,
+          reason: `Vehicle has already passed ${joinerPickup} (currently at ${pool.currentLocation})`,
+        };
+      }
+    }
+
+    return { canJoin: true, corridor };
+  }
+
+  // 3. Fallback if no predefined corridor was found:
+  // Check if joiner route is reverse of any active rider in ANY corridor
+  if (activeRiders.length > 0) {
+    for (const r of activeRiders) {
+      const pZone = (r.pickupZone as Zone) || pool.pickupZone;
+      const dZone = r.destinationZone as Zone;
+      const riderCorridors = findCorridorsForRoute(pZone, dZone);
+      for (const rc of riderCorridors) {
+        const jpIdx = rc.zones.indexOf(joinerPickup);
+        const jdIdx = rc.zones.indexOf(joinerDestination);
+        if (jpIdx !== -1 && jdIdx !== -1 && jpIdx >= jdIdx) {
+          return {
+            canJoin: false,
+            reason: `Cannot join: ${joinerPickup} to ${joinerDestination} is in the reverse direction of ${pZone} to ${dZone} on ${rc.name}`,
+          };
+        }
+      }
+    }
+  }
+
+  const joinerCorridor = findCorridorForRoute(joinerPickup, joinerDestination);
+  return { canJoin: true, corridor: joinerCorridor ?? undefined };
 }

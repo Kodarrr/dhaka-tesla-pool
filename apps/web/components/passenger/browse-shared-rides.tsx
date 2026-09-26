@@ -40,11 +40,37 @@ interface JoinPanelProps {
 
 function JoinPanel({ pool, onJoined }: JoinPanelProps) {
   const { isAuthenticated, openAuthModal } = useAuth()
-  const initialSource: Zone = pool.currentLocation ?? pool.pickupZone
+
+  const cZones = pool.corridorZones && pool.corridorZones.length > 1 ? pool.corridorZones : null
+  const currentLoc = pool.currentLocation ?? pool.pickupZone
+  const currentZoneIdx = cZones ? cZones.indexOf(currentLoc) : -1
+  const minPickupIdx = currentZoneIdx >= 0 ? currentZoneIdx : 0
+
+  // Allowed boarding locations:
+  // If corridor is known: stops from current vehicle location up to the stop before the final destination
+  const allowedSources: Zone[] = cZones
+    ? (cZones.slice(minPickupIdx, cZones.length - 1).length > 0
+        ? cZones.slice(minPickupIdx, cZones.length - 1)
+        : [currentLoc])
+    : ZONES
+
+  const initialSource: Zone = allowedSources.includes(currentLoc)
+    ? currentLoc
+    : (allowedSources[0] ?? currentLoc)
+
   const [source, setSource] = useState<Zone>(initialSource)
+
+  // Allowed destinations for selected source:
+  // Strictly zones after the source in corridor order
+  const sourceIdx = cZones ? cZones.indexOf(source) : -1
+  const allowedDestinations: Zone[] = cZones && sourceIdx >= 0
+    ? cZones.slice(sourceIdx + 1)
+    : ZONES.filter((z) => z !== source)
+
   const [destination, setDestination] = useState<Zone>(() => {
-    return ZONES.find((z) => z !== initialSource) ?? 'GULSHAN'
+    return allowedDestinations[0] ?? (ZONES.find((z) => z !== initialSource) ?? 'GULSHAN')
   })
+
   const [seats, setSeats] = useState(1)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('TESLAPAY')
   const [loading, setLoading] = useState(false)
@@ -52,6 +78,18 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
   const [success, setSuccess] = useState(false)
 
   const maxSeats = Math.min(3, pool.seatsAvailable)
+
+  // Check if chosen route is reverse or incompatible
+  let isReverse = false
+  let reverseReason = ''
+  if (cZones) {
+    const pIdx = cZones.indexOf(source)
+    const dIdx = cZones.indexOf(destination)
+    if (pIdx !== -1 && dIdx !== -1 && pIdx >= dIdx) {
+      isReverse = true
+      reverseReason = `Opposite direction: This ride is heading towards ${cZones[cZones.length - 1]}. You cannot travel backwards from ${source} to ${destination}.`
+    }
+  }
 
   // Live fare preview for the shared journey portion
   const isSameZone = source === destination
@@ -63,9 +101,15 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
 
   const handleSourceChange = (newSource: Zone) => {
     setSource(newSource)
-    if (destination === newSource) {
-      const nextDest = ZONES.find((z) => z !== newSource) ?? 'GULSHAN'
-      setDestination(nextDest)
+    let nextAllowed: Zone[]
+    if (cZones) {
+      const idx = cZones.indexOf(newSource)
+      nextAllowed = idx >= 0 ? cZones.slice(idx + 1) : ZONES.filter((z) => z !== newSource)
+    } else {
+      nextAllowed = ZONES.filter((z) => z !== newSource)
+    }
+    if (!nextAllowed.includes(destination)) {
+      setDestination(nextAllowed[0] ?? 'GULSHAN')
     }
   }
 
@@ -76,6 +120,10 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
     }
     if (source === destination) {
       setError('Pickup and destination cannot be the same zone')
+      return
+    }
+    if (isReverse) {
+      setError(reverseReason || 'Cannot join a ride in the reverse direction')
       return
     }
     setError('')
@@ -96,7 +144,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
     } finally {
       setLoading(false)
     }
-  }, [pool.poolId, source, destination, seats, paymentMethod, isAuthenticated, openAuthModal, onJoined])
+  }, [pool.poolId, source, destination, seats, paymentMethod, isAuthenticated, openAuthModal, onJoined, isReverse, reverseReason])
 
   if (success) {
     return (
@@ -129,7 +177,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
               onChange={(e) => handleSourceChange(e.target.value as Zone)}
               className="zone-select pr-7 text-xs py-2"
             >
-              {ZONES.map((z) => (
+              {allowedSources.map((z) => (
                 <option key={z} value={z} style={{ background: '#0f1521' }}>
                   {ZONE_EMOJI[z]} {z} {z === (pool.currentLocation ?? pool.pickupZone) ? '(Current)' : ''}
                 </option>
@@ -151,11 +199,10 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
               onChange={(e) => setDestination(e.target.value as Zone)}
               className="zone-select pr-7 text-xs py-2"
             >
-              {ZONES.map((z) => (
+              {allowedDestinations.map((z) => (
                 <option
                   key={z}
                   value={z}
-                  disabled={z === source}
                   style={{ background: '#0f1521' }}
                 >
                   {ZONE_EMOJI[z]} {z}
@@ -227,7 +274,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
       </div>
 
       {/* Cost Preview Box: before confirmation, the user sees their cost */}
-      {!isSameZone && (
+      {!isSameZone && !isReverse && (
         <div className="rounded-xl border border-[#00d4ff]/25 bg-[#00d4ff]/5 p-2.5 space-y-1.5 animate-fade-in">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#8ba3c7] flex items-center gap-1.5">
@@ -252,6 +299,13 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
         </div>
       )}
 
+      {isReverse && (
+        <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>{reverseReason}</span>
+        </div>
+      )}
+
       {isSameZone && (
         <p className="text-xs text-amber-400 font-medium">Pickup and destination must be different zones.</p>
       )}
@@ -266,7 +320,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
       <button
         type="button"
         onClick={handleJoin}
-        disabled={loading || isSameZone}
+        disabled={loading || isSameZone || isReverse}
         className="btn-primary w-full py-2.5 text-sm font-semibold"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Car className="w-4 h-4" />}
@@ -330,6 +384,34 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
               </span>
             ))}
           </div>
+
+          {/* Route progression indicator */}
+          {pool.corridorZones && pool.corridorZones.length > 0 && (
+            <div className="flex items-center gap-1.5 text-[11px] text-[#8ba3c7] bg-[#0f172a]/70 border border-[#1f2d44]/50 px-2.5 py-1 rounded-lg flex-wrap">
+              <span className="text-[#00d4ff] font-semibold flex items-center gap-1">
+                <Navigation className="w-3 h-3" /> Heading:
+              </span>
+              {pool.corridorZones.map((z, idx) => (
+                <span key={z} className="flex items-center gap-1">
+                  <span
+                    className={cn(
+                      z === currentLoc
+                        ? 'text-[#00ff9d] font-bold underline'
+                        : 'text-[#8ba3c7]'
+                    )}
+                  >
+                    {z}
+                  </span>
+                  {idx < pool.corridorZones!.length - 1 && (
+                    <span className="text-[#4d6080]">→</span>
+                  )}
+                </span>
+              ))}
+              {pool.corridorName && (
+                <span className="text-[10px] text-[#4d6080]">({pool.corridorName})</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Badges */}

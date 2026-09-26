@@ -275,6 +275,7 @@ export async function apiGetActiveRides() {
 // ─── Shareable Rides (Browse) ─────────────────────────────────────────────────
 
 export interface ShareableRider {
+  pickupZone?: Zone
   destinationZone: Zone
   seats: number
   passenger?: { id: string; name: string } | null
@@ -284,6 +285,9 @@ export interface ShareableRide {
   poolId: string
   pickupZone: Zone
   currentLocation?: Zone
+  corridorId?: string | null
+  corridorName?: string | null
+  corridorZones?: Zone[] | null
   stage: string
   seatsTaken: number
   seatsCap: number
