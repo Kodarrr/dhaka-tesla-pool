@@ -10,7 +10,6 @@ import {
   apiDriverComplete,
   apiGetUserProfile,
   apiDriverConfirmCash,
-  apiGetDriverStatus,
   apiToggleDriverStatus,
 } from '@/lib/api'
 
@@ -67,8 +66,38 @@ export default function ActivePools() {
   const [lastRefresh, setLast] = useState<Date | null>(null)
   const [actionStates, setActions] = useState<Record<string, { doing: boolean; done: string }>>({})
 
+  // ── Online / Offline toggle ────────────────────────────────────────────────
+  // Stored in localStorage so it survives page refreshes.
+  // Defaults to OFFLINE — driver must explicitly go online.
+  const storageKey = user?.id ? `driver_online_${user.id}` : 'driver_online'
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem(storageKey) === 'true'
+  })
+  const [togglingOnline, setTogglingOnline] = useState(false)
+
+  const handleToggleOnline = () => {
+    if (togglingOnline) return
+    const next = !isOnline
+    setIsOnline(next)
+    localStorage.setItem(storageKey, String(next))
+    setError('')
+    if (!next) {
+      // Going offline — clear pools immediately so the UI shows the empty state
+      setPools([])
+      setStats({ poolsCount: 0, requestsCount: 0 })
+    }
+    // Fire-and-forget sync to DB so backend / other passengers know the status.
+    // We don't await or show errors — UI behaviour is purely local.
+    setTogglingOnline(true)
+    apiToggleDriverStatus(next)
+      .catch(() => { /* silent — UI doesn't depend on this */ })
+      .finally(() => setTogglingOnline(false))
+  }
+
+  // ── Active pools polling — only runs when ONLINE ───────────────────────────
   const fetchActive = useCallback(async () => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !isOnline) return
     setLoading(true)
     setError('')
     try {
@@ -81,17 +110,17 @@ export default function ActivePools() {
     } finally {
       setLoading(false)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, isOnline])
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !isOnline) {
       setPools([])
       return
     }
     fetchActive()
     const interval = setInterval(fetchActive, 5_000)
     return () => clearInterval(interval)
-  }, [fetchActive, isAuthenticated])
+  }, [fetchActive, isAuthenticated, isOnline])
 
   const runAction = useCallback(
     async (targetId: string, label: string, fn: () => Promise<unknown>) => {
@@ -99,7 +128,6 @@ export default function ActivePools() {
       try {
         await fn()
         setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: label } }))
-        // Refresh immediately and again after brief delay
         fetchActive()
         setTimeout(fetchActive, 1000)
       } catch (err: unknown) {
@@ -110,50 +138,6 @@ export default function ActivePools() {
     },
     [fetchActive]
   )
-
-
-
-  const [isOnline, setIsOnline] = useState<boolean>(true)
-  const [togglingOnline, setTogglingOnline] = useState<boolean>(false)
-  const [teslaInfo, setTeslaInfo] = useState<{ name: string; plate: string } | null>(null)
-
-  const fetchDriverStatus = useCallback(async () => {
-    if (!isAuthenticated || user?.role !== 'DRIVER') return
-    try {
-      const data = await apiGetDriverStatus()
-      setIsOnline(data.isOnline)
-      if (data.tesla) {
-        setTeslaInfo({ name: data.tesla.name, plate: data.tesla.plate })
-      }
-    } catch {
-      // silent
-    }
-  }, [isAuthenticated, user])
-
-  useEffect(() => {
-    fetchDriverStatus()
-  }, [fetchDriverStatus])
-
-  const handleToggleOnline = async () => {
-    if (togglingOnline) return
-    const nextState = !isOnline
-    setIsOnline(nextState)
-    setTogglingOnline(true)
-    setError('')
-    try {
-      const res = await apiToggleDriverStatus(nextState)
-      setIsOnline(res.isOnline)
-      if (res.isOnline) {
-        fetchActive()
-      }
-    } catch (err: unknown) {
-      setIsOnline(!nextState) // revert on error
-      const ae = err as { response?: { data?: { error?: string } } }
-      setError(ae.response?.data?.error ?? 'Failed to update online status.')
-    } finally {
-      setTogglingOnline(false)
-    }
-  }
 
   const totalEarnings = pools.reduce(
     (sum, p) => sum + p.rideRequests.reduce((s, r) => s + Math.round(r.totalFarePaisa / 100), 0),
@@ -179,29 +163,24 @@ export default function ActivePools() {
                   "w-2 h-2 rounded-full transition-all duration-300",
                   isOnline ? "bg-[#00ff9d] animate-pulse shadow-[0_0_8px_#00ff9d]" : "bg-zinc-500"
                 )} />
-                <span className={cn("text-xs font-medium transition-colors", isOnline ? "text-[#00ff9d]" : "text-[#8ba3c7]")}>
+                <span className={cn("text-xs font-medium transition-colors",
+                  isOnline ? "text-[#00ff9d]" : "text-[#8ba3c7]"
+                )}>
                   {isOnline ? "Online · Accepting Passengers" : "Offline · Not accepting rides"}
                 </span>
-                {teslaInfo && (
-                  <span className="text-[11px] text-[#4d6080] ml-1">
-                    ({teslaInfo.name} · {teslaInfo.plate})
-                  </span>
-                )}
               </div>
-              {/* Change 8: driver sees their own average rating in header */}
               {user?.id && <DriverRatingSummary driverId={user.id} />}
             </div>
           </div>
-          {/* Interactive online/offline toggle switch */}
+
+          {/* Toggle switch */}
           <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all duration-200 select-none",
-                isOnline
-                  ? "bg-[#00ff9d]/15 text-[#00ff9d] border-[#00ff9d]/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]"
-                  : "bg-zinc-800/80 text-zinc-400 border-zinc-700"
-              )}
-            >
+            <span className={cn(
+              "text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all duration-200 select-none",
+              isOnline
+                ? "bg-[#00ff9d]/15 text-[#00ff9d] border-[#00ff9d]/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]"
+                : "bg-zinc-800/80 text-zinc-400 border-zinc-700"
+            )}>
               {isOnline ? "ONLINE" : "OFFLINE"}
             </span>
             <button
@@ -209,89 +188,102 @@ export default function ActivePools() {
               role="switch"
               aria-checked={isOnline}
               disabled={togglingOnline}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleToggleOnline();
-              }}
+              onClick={handleToggleOnline}
               className={cn(
-                "relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00ff9d] p-0.5 disabled:opacity-60",
-                isOnline
-                  ? "bg-[#00ff9d]/25 border-[#00ff9d]"
-                  : "bg-[#162032] border-[#2a3d5e]"
+                "relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 p-0.5",
+                "transition-all duration-200 ease-in-out",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00ff9d]",
+                "disabled:opacity-60",
+                isOnline ? "bg-[#00ff9d]/25 border-[#00ff9d]" : "bg-[#162032] border-[#2a3d5e]"
               )}
               title={isOnline ? "Click to go Offline" : "Click to go Online"}
             >
               <span className="sr-only">Toggle Online Status</span>
-              <span
-                className={cn(
-                  "pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-md transition duration-200 ease-in-out",
+              {togglingOnline ? (
+                <span className="flex items-center justify-center w-full h-full">
+                  <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" />
+                </span>
+              ) : (
+                <span className={cn(
+                  "pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-md",
+                  "transition duration-200 ease-in-out",
                   isOnline
                     ? "translate-x-7 bg-[#00ff9d] shadow-[0_0_10px_#00ff9d]"
                     : "translate-x-0 bg-[#617594]"
-                )}
-              />
+                )} />
+              )}
             </button>
           </div>
         </div>
 
-        {/* Offline Notice Banner */}
-        {!isOnline && (
-          <div className="mt-3 flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>You are currently <strong>Offline</strong>. Switch to Online to accept ride pools.</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleOnline}
-              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-semibold text-[11px] border border-amber-500/40 transition-colors"
-            >
-              Go Online
-            </button>
+        {/* Stats row — shown only when online */}
+        {isOnline && (
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {[
+              { label: 'Active Pools', value: stats.poolsCount.toString(), color: 'text-[#00d4ff]' },
+              { label: 'Pending Riders', value: stats.requestsCount.toString(), color: 'text-[#00ff9d]' },
+              { label: 'Pool Earnings', value: totalEarnings > 0 ? formatBDT(totalEarnings) : '—', color: 'text-[#f0f4ff]' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="text-center py-2 px-3 rounded-xl bg-[#1c2740]/60 border border-[#1f2d44]/30">
+                <p className={cn('text-xl font-bold', color)}>{value}</p>
+                <p className="text-xs text-[#4d6080] mt-0.5">{label}</p>
+              </div>
+            ))}
           </div>
         )}
-
-        <div className="grid grid-cols-3 gap-3 mt-4">
-          {[
-            { label: 'Active Pools', value: stats.poolsCount.toString(), color: 'text-[#00d4ff]' },
-            { label: 'Pending Riders', value: stats.requestsCount.toString(), color: 'text-[#00ff9d]' },
-            { label: 'Pool Earnings', value: totalEarnings > 0 ? formatBDT(totalEarnings) : '—', color: 'text-[#f0f4ff]' },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="text-center py-2 px-3 rounded-xl bg-[#1c2740]/60 border border-[#1f2d44]/30">
-              <p className={cn('text-xl font-bold', color)}>{value}</p>
-              <p className="text-xs text-[#4d6080] mt-0.5">{label}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* Feed header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-emerald-400" />
-          <h3 className="text-sm font-semibold text-dhaka-text-headline">Active corridor pools</h3>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastRefresh && (
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#4d6080]">
-              <Wifi className="w-3 h-3 text-[#00ff9d]" />
-              {lastRefresh.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-          )}
-          <button onClick={fetchActive} disabled={loading} className="btn-secondary px-3 py-2 text-xs">
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-            {loading ? 'Loading…' : 'Refresh'}
+      {/* ── OFFLINE empty state ────────────────────────────────────────────── */}
+      {!isOnline && (
+        <div className="glass-card p-12 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 border border-zinc-700/40 flex items-center justify-center mx-auto">
+            <Car className="w-8 h-8 text-zinc-600" />
+          </div>
+          <div>
+            <p className="text-[#8ba3c7] font-semibold text-base">You are Offline</p>
+            <p className="text-sm text-[#4d6080] mt-1">Go online to start accepting ride pools</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleOnline}
+            disabled={togglingOnline}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00ff9d]/15 hover:bg-[#00ff9d]/25 text-[#00ff9d] font-semibold text-sm border border-[#00ff9d]/40 transition-all disabled:opacity-50"
+          >
+            {togglingOnline ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+            Go Online
           </button>
         </div>
-      </div>
-
-      {error && (
-        <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
       )}
+
+      {/* ── ONLINE: feed header + pool cards ──────────────────────────────── */}
+      {isOnline && (
+        <>
+          {/* Feed header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-sm font-semibold text-dhaka-text-headline">Active corridor pools</h3>
+            </div>
+            <div className="flex items-center gap-3">
+              {lastRefresh && (
+                <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#4d6080]">
+                  <Wifi className="w-3 h-3 text-[#00ff9d]" />
+                  {lastRefresh.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              <button onClick={fetchActive} disabled={loading} className="btn-secondary px-3 py-2 text-xs">
+                <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
 
       {/* Skeleton */}
       {loading && pools.length === 0 && (
@@ -497,21 +489,20 @@ export default function ActivePools() {
                       {isRequested && (
                         <button
                           onClick={() => runAction(pool.id, 'Accept', () => apiDriverAccept(pool.id))}
-                          disabled={action?.doing || !isOnline}
+                          disabled={action?.doing || isOnline !== true}
                           className={cn(
                             "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200",
-                            !isOnline
+                            isOnline !== true
                               ? "border-zinc-700/60 text-zinc-500 bg-zinc-900/40 cursor-not-allowed"
                               : "border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 cursor-pointer disabled:opacity-50"
                           )}
-                          title={!isOnline ? "Switch your status to Online to accept this pool" : undefined}
                         >
                           {action?.doing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
                             <CheckCircle2 className="w-3.5 h-3.5" />
                           )}
-                          {!isOnline ? 'Go Online to Accept Pool' : 'Accept Pool'}
+                          Accept Pool
                         </button>
                       )}
 
@@ -567,10 +558,12 @@ export default function ActivePools() {
         </div>
       )}
 
-      {pools.length > 0 && (
-        <p className="text-center text-xs text-[#4d6080]">
-          {pools.length} active pool{pools.length !== 1 ? 's' : ''} · auto-refreshes every 15s
-        </p>
+          {pools.length > 0 && (
+            <p className="text-center text-xs text-[#4d6080]">
+              {pools.length} active pool{pools.length !== 1 ? 's' : ''} · auto-refreshes every 5s
+            </p>
+          )}
+        </> /* end isOnline block */
       )}
     </div>
   )

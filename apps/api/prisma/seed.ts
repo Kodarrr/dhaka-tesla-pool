@@ -17,6 +17,8 @@ async function main() {
     where: { driverId: jashim.id },
     update: {},
     create: { driverId: jashim.id, name: 'Bullet', plate: 'DHA-3021', capacity: 3, isOnline: true },
+    update: { isOnline: false },
+    create: { driverId: jashim.id, name: 'Bullet', plate: 'DHA-3021', capacity: 3, isOnline: false },
   });
 
   const nusrat = await prisma.user.upsert({
