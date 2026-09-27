@@ -254,20 +254,20 @@ function JoinPanel({
             <Armchair className="w-3 h-3 text-[#00d4ff]" />
             Seats needed
           </label>
-          <div className="flex gap-1">
+          <div className="flex gap-1.5">
             {Array.from({ length: maxSeats }, (_, i) => i + 1).map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => setSeats(n)}
                 className={cn(
-                  'flex-1 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150',
+                  'flex-1 py-2 rounded-lg border text-xs font-bold transition-all duration-150 cursor-pointer',
                   seats === n
-                    ? 'border-[#00d4ff]/70 text-[#00d4ff] bg-[#00d4ff]/10'
-                    : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
+                    ? 'border-[#00d4ff] text-[#08121e] bg-[#00d4ff] shadow-[0_0_12px_rgba(0,212,255,0.4)] scale-105 ring-2 ring-[#00d4ff]/40'
+                    : 'border-[#1f2d44]/70 bg-[#101b2b] text-[#8ba3c7] hover:border-[#2d4265] hover:text-[#f0f4ff] active:scale-95'
                 )}
               >
-                {n}
+                {n} {n === 1 ? 'seat' : 'seats'}
               </button>
             ))}
           </div>

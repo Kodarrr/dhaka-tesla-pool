@@ -559,3 +559,26 @@ export async function apiLeaveRide(rideId: string, paymentMethod?: PaymentMethod
   const { data } = await apiClient.post<{ success: boolean; ride: RideRequest; poolCompleted: boolean }>(`/rides/${rideId}/leave`, { paymentMethod })
   return data
 }
+
+// ─── Driver Online / Offline Status ──────────────────────────────────────────
+
+export interface DriverTeslaStatus {
+  id: string
+  name: string
+  plate: string
+  capacity: number
+  isOnline: boolean
+}
+
+export async function apiGetDriverStatus(): Promise<{ success: boolean; tesla: DriverTeslaStatus; isOnline: boolean }> {
+  const { data } = await apiClient.get<{ success: boolean; tesla: DriverTeslaStatus; isOnline: boolean }>('/driver/status')
+  return data
+}
+
+export async function apiToggleDriverStatus(isOnline?: boolean): Promise<{ success: boolean; tesla: DriverTeslaStatus; isOnline: boolean }> {
+  const { data } = await apiClient.patch<{ success: boolean; tesla: DriverTeslaStatus; isOnline: boolean }>(
+    '/driver/status',
+    typeof isOnline === 'boolean' ? { isOnline } : {}
+  )
+  return data
+}

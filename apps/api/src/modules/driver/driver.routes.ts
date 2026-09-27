@@ -6,11 +6,48 @@ import {
   completeTrip,
   getDriverHistory,
   confirmCashPayment,
+  getDriverTesla,
+  setDriverOnlineStatus,
   DriverError,
 } from './driver.service.js';
 
 export default async function driverRoutes(fastify: FastifyInstance) {
   const requireDriver = [fastify.authenticate, fastify.requireRole('DRIVER')];
+
+  fastify.get('/status', { preHandler: requireDriver }, async (req, reply) => {
+    try {
+      const tesla = await getDriverTesla(req.user.sub);
+      return reply.code(200).send({ success: true, tesla, isOnline: tesla.isOnline });
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  fastify.patch('/status', { preHandler: requireDriver }, async (req, reply) => {
+    const body = req.body as { isOnline?: boolean } | undefined;
+    try {
+      const tesla = await setDriverOnlineStatus(req.user.sub, body?.isOnline);
+      return reply.code(200).send({ success: true, tesla, isOnline: tesla.isOnline });
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  fastify.post('/toggle-online', { preHandler: requireDriver }, async (req, reply) => {
+    const body = req.body as { isOnline?: boolean } | undefined;
+    try {
+      const tesla = await setDriverOnlineStatus(req.user.sub, body?.isOnline);
+      return reply.code(200).send({ success: true, tesla, isOnline: tesla.isOnline });
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
 
   fastify.get('/history', { preHandler: requireDriver }, async (req, reply) => {
     try {
