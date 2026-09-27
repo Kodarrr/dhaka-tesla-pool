@@ -121,6 +121,12 @@ export async function estimateRide(input: EstimateRideInput) {
     discountPercentage: fareResult.discountPercentage,
     fareDetails: fareResult,
     breakdown: fareResult.breakdown ?? solo ?? fallbackBreakdown,
+    treeRoute: {
+      path: dhakaTree.getRoute(pickupZone, dropoffZone).path,
+      lca: dhakaTree.getRoute(pickupZone, dropoffZone).lca,
+      totalDistanceKm: dhakaTree.getRoute(pickupZone, dropoffZone).totalDistanceKm,
+      edges: dhakaTree.getRoute(pickupZone, dropoffZone).edges,
+    },
     poolOptions,
   };
 }
@@ -524,12 +530,42 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       destinationZone
     );
 
-    if (!directionCheck.canJoin) {
+    let canJoin = directionCheck.canJoin;
+    let failureReason = directionCheck.reason;
+
+    if (!canJoin) {
+      // Tree-path overlap evaluation
+      const treeCheck = evaluateTreeShareCandidate(
+        {
+          id: poolId,
+          shareable: locked.shareable,
+          pickupZone: locked.pickupZone,
+          currentLocation: locked.currentLocation,
+          corridorId: locked.corridorId,
+          stage: locked.stage,
+          seatsTaken: locked.seatsTaken,
+          seatsCap: locked.seatsCap,
+          existingDestinations: existingRequests.map((r) => r.destinationZone),
+        },
+        {
+          pickupZone: joinerPickup,
+          destinationZone,
+          seats,
+        }
+      );
+      if (treeCheck.eligible) {
+        canJoin = true;
+        failureReason = undefined;
+      }
+    }
+
+    if (!canJoin) {
       throw new RideError(
         400,
-        directionCheck.reason || 'Cannot join ride: route is in an incompatible or reverse direction'
+        failureReason || 'Cannot join ride: route is in an incompatible or reverse direction'
       );
     }
+
 
     if (directionCheck.corridor && !locked.corridorId) {
       await tx.pool.update({

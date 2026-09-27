@@ -12,6 +12,8 @@ import {
   calculateLegBaseFare,
   calculateCorridorPoolFares,
   calculateSoloCorridorFare,
+  calculateTreePoolFares,
+  calculateTreeFare,
   POOL_DISCOUNT_PCT,
 } from '../fare.js';
 
@@ -394,5 +396,64 @@ describe('Audit Trail & Historical Breakdown Verification', () => {
     const solo = calculateSoloCorridorFare('BANANI', 'MOHAKHALI');
     expect(solo.totalFareBDT).toBe(100);
     expect(solo.corridorId).toBe('CORRIDOR_AIRPORT_ROAD');
+  });
+});
+
+describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
+  it('calculates solo tree fare correctly based on tree edges', () => {
+    // Gulshan -> Mohakhali is exactly 1 km along the tree (1 * 50 = 50 BDT)
+    const solo = calculateTreeFare('GULSHAN', 'MOHAKHALI');
+    expect(solo.pickupZone).toBe('GULSHAN');
+    expect(solo.destinationZone).toBe('MOHAKHALI');
+    expect(solo.legs).toHaveLength(1);
+    expect(solo.legs[0].distanceKm).toBe(1);
+    expect(solo.totalFareBDT).toBe(50);
+    expect(solo.totalFarePaisa).toBe(5000);
+  });
+
+  it('correctly discounts shared tree edges and charges full rate on solo tree branches', () => {
+    // Rider 1: UTTARA -> MOTIJHEEL
+    // (Edges: UTTARA->BASHUNDHARA (8km), BASHUNDHARA->GULSHAN (5km), GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
+    // Rider 2: GULSHAN -> MOTIJHEEL
+    // (Edges: GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
+    const result = calculateTreePoolFares({
+      riders: [
+        {
+          requestId: 'rider-uttara',
+          pickupZone: 'UTTARA',
+          destinationZone: 'MOTIJHEEL',
+          seats: 1,
+        },
+        {
+          requestId: 'rider-gulshan',
+          pickupZone: 'GULSHAN',
+          destinationZone: 'MOTIJHEEL',
+          seats: 1,
+        },
+      ],
+    });
+
+    const rUttara = result.riders['rider-uttara'];
+    const rGulshan = result.riders['rider-gulshan'];
+
+    // Rider 1 has 5 legs: 2 solo legs and 3 shared legs
+    expect(rUttara.legs).toHaveLength(5);
+    expect(rUttara.soloLegsCount).toBe(2);
+    expect(rUttara.sharedLegsCount).toBe(3);
+
+    // Solo legs: (8 + 5) * 50 = 650 BDT
+    expect(rUttara.soloPortionBDT).toBe(650);
+
+    // Shared legs: (1 + 8 + 6) = 15 km. Undiscounted = 15 * 50 = 750 BDT. 30% off = 525 BDT
+    expect(rUttara.sharedPortionBDT).toBe(525);
+    expect(rUttara.totalFareBDT).toBe(650 + 525); // 1175 BDT
+    expect(rUttara.totalDiscountBDT).toBe(225); // 750 - 525 = 225 BDT saved
+
+    // Rider 2 has 3 legs, all 3 shared!
+    expect(rGulshan.legs).toHaveLength(3);
+    expect(rGulshan.soloLegsCount).toBe(0);
+    expect(rGulshan.sharedLegsCount).toBe(3);
+    expect(rGulshan.totalFareBDT).toBe(525);
+    expect(rGulshan.totalDiscountBDT).toBe(225);
   });
 });
