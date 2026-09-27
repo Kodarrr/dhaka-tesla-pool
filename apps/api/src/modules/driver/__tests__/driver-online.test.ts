@@ -12,8 +12,7 @@ vi.mock('../../../lib/prisma.js', () => {
     prisma: {
       tesla: {
         findUnique: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
+        upsert: vi.fn(),
       },
       user: {
         findUnique: vi.fn(),
@@ -38,10 +37,11 @@ describe('Driver Online/Offline Status Management', () => {
   });
 
   it('fetches existing driver tesla online status', async () => {
-    (prisma.tesla.findUnique as any).mockResolvedValue({
+    (prisma.user.findUnique as any).mockResolvedValue({ id: driverId, name: 'Jashim' });
+    (prisma.tesla.upsert as any).mockResolvedValue({
       id: 'tesla-bullet',
       name: 'Bullet',
-      plate: 'DHA-3021',
+      plate: 'DHA-M-1',
       capacity: 3,
       isOnline: true,
     });
@@ -49,73 +49,74 @@ describe('Driver Online/Offline Status Management', () => {
     const tesla = await getDriverTesla(driverId);
     expect(tesla).toBeDefined();
     expect(tesla.isOnline).toBe(true);
-    expect(tesla.plate).toBe('DHA-3021');
+    expect(prisma.tesla.upsert).toHaveBeenCalled();
   });
 
   it('auto-provisions a Tesla if a newly registered driver does not have one yet', async () => {
-    (prisma.tesla.findUnique as any).mockResolvedValue(null);
-    (prisma.user.findUnique as any).mockResolvedValue({
-      id: 'driver-new',
-      name: 'New Driver',
-    });
-    (prisma.tesla.create as any).mockResolvedValue({
+    const newDriverId = 'driver-new-user-abc';
+    (prisma.user.findUnique as any).mockResolvedValue({ id: newDriverId, name: 'New Driver' });
+    (prisma.tesla.upsert as any).mockResolvedValue({
       id: 'tesla-new',
       name: "New Driver's Tesla",
-      plate: 'DHA-5555',
+      plate: 'DHA-RABC',
       capacity: 3,
-      isOnline: true,
+      isOnline: false,
     });
 
-    const tesla = await getDriverTesla('driver-new');
+    const tesla = await getDriverTesla(newDriverId);
     expect(tesla).toBeDefined();
     expect(tesla.name).toBe("New Driver's Tesla");
-    expect(prisma.tesla.create).toHaveBeenCalled();
+    expect(prisma.tesla.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { driverId: newDriverId } })
+    );
   });
 
   it('updates driver online status to false (offline)', async () => {
+    (prisma.user.findUnique as any).mockResolvedValue({ id: driverId, name: 'Jashim' });
     (prisma.tesla.findUnique as any).mockResolvedValue({
       id: 'tesla-bullet',
       driverId,
       isOnline: true,
     });
-    (prisma.tesla.update as any).mockResolvedValue({
+    (prisma.tesla.upsert as any).mockResolvedValue({
       id: 'tesla-bullet',
       name: 'Bullet',
-      plate: 'DHA-3021',
+      plate: 'DHA-M-1',
       capacity: 3,
       isOnline: false,
     });
 
     const result = await setDriverOnlineStatus(driverId, false);
     expect(result.isOnline).toBe(false);
-    expect(prisma.tesla.update).toHaveBeenCalledWith(
+    expect(prisma.tesla.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'tesla-bullet' },
-        data: { isOnline: false },
+        where: { driverId },
+        update: { isOnline: false },
       })
     );
   });
 
   it('toggles driver status from offline to online when isOnline parameter is omitted', async () => {
+    (prisma.user.findUnique as any).mockResolvedValue({ id: driverId, name: 'Jashim' });
     (prisma.tesla.findUnique as any).mockResolvedValue({
       id: 'tesla-bullet',
       driverId,
-      isOnline: false,
+      isOnline: false, // currently offline → should toggle to true
     });
-    (prisma.tesla.update as any).mockResolvedValue({
+    (prisma.tesla.upsert as any).mockResolvedValue({
       id: 'tesla-bullet',
       name: 'Bullet',
-      plate: 'DHA-3021',
+      plate: 'DHA-M-1',
       capacity: 3,
       isOnline: true,
     });
 
-    const result = await setDriverOnlineStatus(driverId);
+    const result = await setDriverOnlineStatus(driverId); // no isOnline param → toggle
     expect(result.isOnline).toBe(true);
-    expect(prisma.tesla.update).toHaveBeenCalledWith(
+    expect(prisma.tesla.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'tesla-bullet' },
-        data: { isOnline: true },
+        where: { driverId },
+        update: { isOnline: true },
       })
     );
   });
@@ -171,4 +172,3 @@ describe('Driver Online/Offline Status Management', () => {
     expect(result.stage).toBe('MATCHED');
   });
 });
-

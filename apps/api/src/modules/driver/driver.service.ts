@@ -249,51 +249,44 @@ export async function confirmCashPayment(driverId: string, rideRequestId: string
 }
 
 export async function getDriverTesla(driverId: string) {
-  let tesla = await prisma.tesla.findUnique({
+  const driver = await prisma.user.findUnique({ where: { id: driverId } });
+  if (!driver) throw new DriverError(404, 'Driver user not found');
+  // Deterministic plate from last 6 chars of driverId — no random collision risk
+  const plate = `DHA-${driverId.slice(-6).toUpperCase().replace(/-/g, 'X')}`;
+  const tesla = await prisma.tesla.upsert({
     where: { driverId },
+    create: {
+      driverId,
+      name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
+      plate,
+      capacity: 3,
+      isOnline: false,
+    },
+    update: {},
     select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
   });
-  if (!tesla) {
-    const driver = await prisma.user.findUnique({ where: { id: driverId } });
-    if (!driver) throw new DriverError(404, 'Driver user not found');
-    const randomPlate = Math.floor(1000 + Math.random() * 9000);
-    tesla = await prisma.tesla.create({
-      data: {
-        driverId,
-        name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
-        plate: `DHA-${randomPlate}`,
-        capacity: 3,
-        isOnline: true,
-      },
-      select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
-    });
-  }
   return tesla;
 }
 
 export async function setDriverOnlineStatus(driverId: string, isOnline?: boolean) {
-  let tesla = await prisma.tesla.findUnique({ where: { driverId } });
-  if (!tesla) {
-    const driver = await prisma.user.findUnique({ where: { id: driverId } });
-    if (!driver) throw new DriverError(404, 'Driver user not found');
-    const randomPlate = Math.floor(1000 + Math.random() * 9000);
-    const target = typeof isOnline === 'boolean' ? isOnline : true;
-    tesla = await prisma.tesla.create({
-      data: {
-        driverId,
-        name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
-        plate: `DHA-${randomPlate}`,
-        capacity: 3,
-        isOnline: target,
-      },
-    });
-    return { id: tesla.id, name: tesla.name, plate: tesla.plate, capacity: tesla.capacity, isOnline: tesla.isOnline };
-  }
-  const target = typeof isOnline === 'boolean' ? isOnline : !tesla.isOnline;
-  const updated = await prisma.tesla.update({
-    where: { id: tesla.id },
-    data: { isOnline: target },
+  const driver = await prisma.user.findUnique({ where: { id: driverId } });
+  if (!driver) throw new DriverError(404, 'Driver user not found');
+  // Fetch current state first (to support toggle-without-value)
+  const existing = await prisma.tesla.findUnique({ where: { driverId } });
+  const target = typeof isOnline === 'boolean' ? isOnline : !(existing?.isOnline ?? false);
+  // Deterministic plate from last 6 chars of driverId — no random collision risk
+  const plate = `DHA-${driverId.slice(-6).toUpperCase().replace(/-/g, 'X')}`;
+  const tesla = await prisma.tesla.upsert({
+    where: { driverId },
+    create: {
+      driverId,
+      name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
+      plate,
+      capacity: 3,
+      isOnline: target,
+    },
+    update: { isOnline: target },
     select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
   });
-  return updated;
+  return tesla;
 }
