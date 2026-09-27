@@ -13,6 +13,7 @@ export async function acceptPool(driverId: string, poolId: string) {
     include: { driver: { select: { name: true } } },
   });
   if (!tesla) throw new DriverError(403, 'No Tesla registered for this driver');
+  if (!tesla.isOnline) throw new DriverError(400, 'Driver is offline. Toggle status to Online to accept rides.');
 
   const pool = await prisma.pool.findUnique({ where: { id: poolId } });
   if (!pool) throw new DriverError(404, 'Pool not found');
@@ -244,5 +245,55 @@ export async function confirmCashPayment(driverId: string, rideRequestId: string
     poolId: ride.poolId ?? undefined,
   });
 
+  return updated;
+}
+
+export async function getDriverTesla(driverId: string) {
+  let tesla = await prisma.tesla.findUnique({
+    where: { driverId },
+    select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
+  });
+  if (!tesla) {
+    const driver = await prisma.user.findUnique({ where: { id: driverId } });
+    if (!driver) throw new DriverError(404, 'Driver user not found');
+    const randomPlate = Math.floor(1000 + Math.random() * 9000);
+    tesla = await prisma.tesla.create({
+      data: {
+        driverId,
+        name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
+        plate: `DHA-${randomPlate}`,
+        capacity: 3,
+        isOnline: true,
+      },
+      select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
+    });
+  }
+  return tesla;
+}
+
+export async function setDriverOnlineStatus(driverId: string, isOnline?: boolean) {
+  let tesla = await prisma.tesla.findUnique({ where: { driverId } });
+  if (!tesla) {
+    const driver = await prisma.user.findUnique({ where: { id: driverId } });
+    if (!driver) throw new DriverError(404, 'Driver user not found');
+    const randomPlate = Math.floor(1000 + Math.random() * 9000);
+    const target = typeof isOnline === 'boolean' ? isOnline : true;
+    tesla = await prisma.tesla.create({
+      data: {
+        driverId,
+        name: driver.name === 'Jashim' ? 'Bullet' : `${driver.name}'s Tesla`,
+        plate: `DHA-${randomPlate}`,
+        capacity: 3,
+        isOnline: target,
+      },
+    });
+    return { id: tesla.id, name: tesla.name, plate: tesla.plate, capacity: tesla.capacity, isOnline: tesla.isOnline };
+  }
+  const target = typeof isOnline === 'boolean' ? isOnline : !tesla.isOnline;
+  const updated = await prisma.tesla.update({
+    where: { id: tesla.id },
+    data: { isOnline: target },
+    select: { id: true, name: true, plate: true, capacity: true, isOnline: true },
+  });
   return updated;
 }

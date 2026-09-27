@@ -10,6 +10,8 @@ import {
   apiDriverComplete,
   apiGetUserProfile,
   apiDriverConfirmCash,
+  apiGetDriverStatus,
+  apiToggleDriverStatus,
 } from '@/lib/api'
 
 import { cn, formatBDT, formatDate, ZONE_EMOJI } from '@/lib/utils'
@@ -111,6 +113,48 @@ export default function ActivePools() {
 
 
 
+  const [isOnline, setIsOnline] = useState<boolean>(true)
+  const [togglingOnline, setTogglingOnline] = useState<boolean>(false)
+  const [teslaInfo, setTeslaInfo] = useState<{ name: string; plate: string } | null>(null)
+
+  const fetchDriverStatus = useCallback(async () => {
+    if (!isAuthenticated || user?.role !== 'DRIVER') return
+    try {
+      const data = await apiGetDriverStatus()
+      setIsOnline(data.isOnline)
+      if (data.tesla) {
+        setTeslaInfo({ name: data.tesla.name, plate: data.tesla.plate })
+      }
+    } catch {
+      // silent
+    }
+  }, [isAuthenticated, user])
+
+  useEffect(() => {
+    fetchDriverStatus()
+  }, [fetchDriverStatus])
+
+  const handleToggleOnline = async () => {
+    if (togglingOnline) return
+    const nextState = !isOnline
+    setIsOnline(nextState)
+    setTogglingOnline(true)
+    setError('')
+    try {
+      const res = await apiToggleDriverStatus(nextState)
+      setIsOnline(res.isOnline)
+      if (res.isOnline) {
+        fetchActive()
+      }
+    } catch (err: unknown) {
+      setIsOnline(!nextState) // revert on error
+      const ae = err as { response?: { data?: { error?: string } } }
+      setError(ae.response?.data?.error ?? 'Failed to update online status.')
+    } finally {
+      setTogglingOnline(false)
+    }
+  }
+
   const totalEarnings = pools.reduce(
     (sum, p) => sum + p.rideRequests.reduce((s, r) => s + Math.round(r.totalFarePaisa / 100), 0),
     0
@@ -122,23 +166,91 @@ export default function ActivePools() {
       <div className="glass-card p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#00ff9d]/20 border border-[#00ff9d]/30 flex items-center justify-center">
-              <Car className="w-5 h-5 text-[#00ff9d]" />
+            <div className={cn(
+              "w-10 h-10 rounded-xl border flex items-center justify-center transition-colors",
+              isOnline ? "bg-[#00ff9d]/20 border-[#00ff9d]/30" : "bg-zinc-800/40 border-zinc-700/50"
+            )}>
+              <Car className={cn("w-5 h-5", isOnline ? "text-[#00ff9d]" : "text-zinc-400")} />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-[#f0f4ff]">Driver Dashboard</h2>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="dot-online" />
-                <span className="text-xs text-[#00ff9d] font-medium">Online · Accepting Passengers</span>
+                <div className={cn(
+                  "w-2 h-2 rounded-full transition-all duration-300",
+                  isOnline ? "bg-[#00ff9d] animate-pulse shadow-[0_0_8px_#00ff9d]" : "bg-zinc-500"
+                )} />
+                <span className={cn("text-xs font-medium transition-colors", isOnline ? "text-[#00ff9d]" : "text-[#8ba3c7]")}>
+                  {isOnline ? "Online · Accepting Passengers" : "Offline · Not accepting rides"}
+                </span>
+                {teslaInfo && (
+                  <span className="text-[11px] text-[#4d6080] ml-1">
+                    ({teslaInfo.name} · {teslaInfo.plate})
+                  </span>
+                )}
               </div>
               {/* Change 8: driver sees their own average rating in header */}
               {user?.id && <DriverRatingSummary driverId={user.id} />}
             </div>
           </div>
-          <div className="relative w-12 h-6 bg-[#00ff9d]/20 border border-[#00ff9d]/40 rounded-full cursor-pointer">
-            <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#00ff9d] shadow-sm" />
+          {/* Interactive online/offline toggle switch */}
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all duration-200 select-none",
+                isOnline
+                  ? "bg-[#00ff9d]/15 text-[#00ff9d] border-[#00ff9d]/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]"
+                  : "bg-zinc-800/80 text-zinc-400 border-zinc-700"
+              )}
+            >
+              {isOnline ? "ONLINE" : "OFFLINE"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isOnline}
+              disabled={togglingOnline}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleToggleOnline();
+              }}
+              className={cn(
+                "relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00ff9d] p-0.5 disabled:opacity-60",
+                isOnline
+                  ? "bg-[#00ff9d]/25 border-[#00ff9d]"
+                  : "bg-[#162032] border-[#2a3d5e]"
+              )}
+              title={isOnline ? "Click to go Offline" : "Click to go Online"}
+            >
+              <span className="sr-only">Toggle Online Status</span>
+              <span
+                className={cn(
+                  "pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-md transition duration-200 ease-in-out",
+                  isOnline
+                    ? "translate-x-7 bg-[#00ff9d] shadow-[0_0_10px_#00ff9d]"
+                    : "translate-x-0 bg-[#617594]"
+                )}
+              />
+            </button>
           </div>
         </div>
+
+        {/* Offline Notice Banner */}
+        {!isOnline && (
+          <div className="mt-3 flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>You are currently <strong>Offline</strong>. Switch to Online to accept ride pools.</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleOnline}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-semibold text-[11px] border border-amber-500/40 transition-colors"
+            >
+              Go Online
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3 mt-4">
           {[
@@ -385,11 +497,21 @@ export default function ActivePools() {
                       {isRequested && (
                         <button
                           onClick={() => runAction(pool.id, 'Accept', () => apiDriverAccept(pool.id))}
-                          disabled={action?.doing}
-                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                          disabled={action?.doing || !isOnline}
+                          className={cn(
+                            "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200",
+                            !isOnline
+                              ? "border-zinc-700/60 text-zinc-500 bg-zinc-900/40 cursor-not-allowed"
+                              : "border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 cursor-pointer disabled:opacity-50"
+                          )}
+                          title={!isOnline ? "Switch your status to Online to accept this pool" : undefined}
                         >
-                          {action?.doing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                          Accept Pool
+                          {action?.doing ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          )}
+                          {!isOnline ? 'Go Online to Accept Pool' : 'Accept Pool'}
                         </button>
                       )}
 

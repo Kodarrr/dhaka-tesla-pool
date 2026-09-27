@@ -605,7 +605,7 @@ The database is pre-seeded with the story cast and default password `password123
 
 ## 15. Testing Suite
 
-The project includes **63 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
+The project includes **76 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
 
 To run the test suite:
 ```bash

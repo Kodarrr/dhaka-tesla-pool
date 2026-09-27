@@ -20,6 +20,7 @@ import {
   Route,
   Layers,
   Share2,
+  Check,
 } from 'lucide-react'
 
 const PASSENGER_COUNTS = [1, 2, 3] as const
@@ -206,33 +207,42 @@ export default function FareEstimator() {
             <span className="text-[11px] text-dhaka-text-dim">Max 3 per Tesla</span>
           </div>
 
-          <div className="flex bg-dhaka-elevated/80 p-1 rounded-xl border border-dhaka-border gap-1">
+          <div className="flex bg-dhaka-elevated/80 p-1.5 rounded-xl border border-dhaka-border gap-1.5">
             {[
               { count: 1 as const, title: '1 Seat', sub: 'Solo trip' },
               { count: 2 as const, title: '2 Seats', sub: 'Pair' },
               { count: 3 as const, title: '3 Seats', sub: 'Full pool' },
-            ].map(({ count, title, sub }) => (
-              <button
-                key={count}
-                type="button"
-                onClick={() => {
-                  setPass(count)
-                  setEstimate(null)
-                  setBooked(false)
-                }}
-                className={cn(
-                  'flex-1 py-2 px-2 rounded-lg text-center transition-all duration-150',
-                  passengers === count
-                    ? 'bg-dhaka-cobalt text-white shadow-sm font-semibold'
-                    : 'text-dhaka-text-body hover:text-dhaka-text-headline hover:bg-dhaka-surface/50'
-                )}
-              >
-                <div className="text-xs font-medium">{title}</div>
-                <div className={cn('text-[10px]', passengers === count ? 'text-blue-100' : 'text-dhaka-text-dim')}>
-                  {sub}
-                </div>
-              </button>
-            ))}
+            ].map(({ count, title, sub }) => {
+              const isSelected = passengers === count
+              return (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => {
+                    setPass(count)
+                    setEstimate(null)
+                    setBooked(false)
+                    if (count + maxShareSeats > 3) {
+                      setMaxShareSeats(Math.max(0, 3 - count) as MaxShareSeats)
+                    }
+                  }}
+                  className={cn(
+                    'flex-1 py-2 px-2 rounded-lg text-center transition-all duration-150 relative cursor-pointer',
+                    isSelected
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border-2 border-blue-400 font-bold scale-[1.02] ring-2 ring-blue-500/40'
+                      : 'border border-transparent text-dhaka-text-body hover:text-dhaka-text-headline hover:bg-dhaka-surface/60 active:scale-95'
+                  )}
+                >
+                  <div className="flex items-center justify-center gap-1 text-xs font-semibold">
+                    {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                    <span>{title}</span>
+                  </div>
+                  <div className={cn('text-[10px] mt-0.5', isSelected ? 'text-blue-100 font-medium' : 'text-dhaka-text-dim')}>
+                    {sub}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -274,22 +284,29 @@ export default function FareEstimator() {
                 Additional seats to open for pooling:
               </p>
               <div className="flex gap-2">
-                {MAX_SHARE_SEATS_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setMaxShareSeats(n)}
-                    disabled={passengers + n > 3}
-                    className={cn(
-                      'flex-1 py-1.5 rounded-lg border text-xs font-medium transition-all duration-150',
-                      maxShareSeats === n && passengers + n <= 3
-                        ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                        : 'border-dhaka-border text-dhaka-text-dim hover:text-dhaka-text-body disabled:opacity-30 disabled:cursor-not-allowed'
-                    )}
-                  >
-                    +{n} {n === 1 ? 'seat' : 'seats'}
-                  </button>
-                ))}
+                {MAX_SHARE_SEATS_OPTIONS.map((n) => {
+                  const isSelected = maxShareSeats === n && passengers + n <= 3
+                  const isDisabled = passengers + n > 3
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setMaxShareSeats(n)}
+                      disabled={isDisabled}
+                      className={cn(
+                        'flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all duration-150 flex items-center justify-center gap-1.5',
+                        isSelected
+                          ? 'border-blue-400 bg-blue-600 text-white shadow-md shadow-blue-500/40 ring-2 ring-blue-400/50 scale-[1.03]'
+                          : isDisabled
+                          ? 'border-dhaka-border/40 bg-dhaka-elevated/20 text-dhaka-text-dim/40 opacity-40 cursor-not-allowed'
+                          : 'border-dhaka-border bg-dhaka-surface/50 text-dhaka-text-body hover:border-dhaka-border-light hover:text-dhaka-text-headline hover:bg-dhaka-surface active:scale-95 cursor-pointer'
+                      )}
+                    >
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                      <span>+{n} {n === 1 ? 'seat' : 'seats'}</span>
+                    </button>
+                  )
+                })}
               </div>
               {passengers + maxShareSeats <= 3 && (
                 <p className="text-[11px] text-emerald-400 flex items-center gap-1">
