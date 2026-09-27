@@ -20,16 +20,17 @@
 - [6. Technology Choices & Justification](#6-technology-choices--justification)
 - [7. Concurrency & Overbooking Prevention](#7-concurrency--overbooking-prevention)
 - [8. Fare Calculation & Financial Precision](#8-fare-calculation--financial-precision)
-- [9. Route Direction & Reverse-Passenger Prevention](#9-route-direction--reverse-passenger-prevention)
-- [10. Ride Lifecycle & State Machine](#10-ride-lifecycle--state-machine)
-- [11. Project Structure](#11-project-structure)
-- [12. Local Setup & Installation](#12-local-setup--installation)
-- [13. Demo Credentials](#13-demo-credentials)
-- [14. Testing Suite](#14-testing-suite)
-- [15. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)](#15-bonus-if-oi-tesla-goes-viral-1m-scale-blueprint)
-- [16. AI Usage Disclosure](#16-ai-usage-disclosure)
-- [17. Git Workflow & Branching](#17-git-workflow--branching)
-- [18. Six-Minute Demo Video Walkthrough](#18-six-minute-demo-video-walkthrough)
+- [9. Dhaka City Tree Topology & Ride Matching Algorithm](#9-dhaka-city-tree-topology--ride-matching-algorithm)
+- [10. Route Direction & Reverse-Passenger Prevention](#10-route-direction--reverse-passenger-prevention)
+- [11. Ride Lifecycle & State Machine](#11-ride-lifecycle--state-machine)
+- [12. Project Structure](#12-project-structure)
+- [13. Local Setup & Installation](#13-local-setup--installation)
+- [14. Demo Credentials](#14-demo-credentials)
+- [15. Testing Suite](#15-testing-suite)
+- [16. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)](#16-bonus-if-oi-tesla-goes-viral-1m-scale-blueprint)
+- [17. AI Usage Disclosure](#17-ai-usage-disclosure)
+- [18. Git Workflow & Branching](#18-git-workflow--branching)
+- [19. Six-Minute Demo Video Walkthrough](#19-six-minute-demo-video-walkthrough)
 
 ---
 
@@ -370,7 +371,73 @@ In **Dhaka Tesla Pool**, all financial amounts are strictly stored as **integer 
 
 ---
 
-## 9. Route Direction & Reverse-Passenger Prevention
+## 9. Dhaka City Tree Topology & Ride Matching Algorithm
+
+To eliminate routing ambiguity and enable mathematically deterministic ride-pooling, Dhaka's road network is modeled as a **Spanning Tree**:
+
+### Dhaka City Tree Structure Diagram
+<!-- Place your diagram image at docs/dhaka-city-tree.png or update the path below -->
+![Dhaka City Tree Structure Diagram](./docs/dhaka-city-tree.png)
+
+> 📸 **Image Placeholder**: Add your Dhaka City Tree diagram at `docs/dhaka-city-tree.png` to illustrate the spanning tree hierarchy and hub-and-spoke branches.
+
+### The Tree Structure
+Dhaka City's 7 key zones form a single connected component with road distance weights:
+- **Central Root Hub**: `MOHAKHALI`
+- **Edges & Distances (MST via Prim's Algorithm)**:
+  - `MOHAKHALI` $\leftrightarrow$ `GULSHAN` (1 km)
+  - `MOHAKHALI` $\leftrightarrow$ `BANANI` (2 km)
+  - `GULSHAN` $\leftrightarrow$ `BASHUNDHARA` (5 km)
+  - `BASHUNDHARA` $\leftrightarrow$ `UTTARA` (8 km)
+  - `MOHAKHALI` $\leftrightarrow$ `DHANMONDI` (8 km)
+  - `DHANMONDI` $\leftrightarrow$ `MOTIJHEEL` (6 km)
+- **Total Edges**: Exactly $N - 1 = 6$ edges connecting all 7 zones with zero cycles.
+
+```mermaid
+graph TD
+    MOHAKHALI["MOHAKHALI (Central Root Hub)"]
+    BANANI["BANANI"]
+    GULSHAN["GULSHAN"]
+    DHANMONDI["DHANMONDI"]
+    BASHUNDHARA["BASHUNDHARA"]
+    UTTARA["UTTARA"]
+    MOTIJHEEL["MOTIJHEEL"]
+
+    MOHAKHALI ---|2 km| BANANI
+    MOHAKHALI ---|1 km| GULSHAN
+    MOHAKHALI ---|8 km| DHANMONDI
+    GULSHAN ---|5 km| BASHUNDHARA
+    BASHUNDHARA ---|8 km| UTTARA
+    DHANMONDI ---|6 km| MOTIJHEEL
+```
+
+### Core Algorithmic Mechanics:
+
+1. **Lowest Common Ancestor (LCA) Path Decomposition**:
+   - Any trip from zone $A$ to zone $B$ has a **guaranteed unique path**.
+   - Path decomposition:
+     - **Upward Leg**: $A \to \text{LCA}(A, B)$ (climbing towards root hub).
+     - **Downward Leg**: $\text{LCA}(A, B) \to B$ (descending away from root hub).
+   - Distance formula:
+     $$\text{dist}(A, B) = \text{distFromRoot}(A) + \text{distFromRoot}(B) - 2 \times \text{distFromRoot}(\text{LCA}(A, B))$$
+     This allows $\mathcal{O}(1)$ instant distance queries!
+
+2. **Directed Tree-Edge Overlap Matching Algorithm**:
+   - A passenger's journey (e.g., Nusrat wanting $S \to D$) and an active pool's route are each decomposed into an ordered list of **Directed Edges**: $[(u_1 \to u_2), (u_2 \to u_3), \dots]$.
+   - **Direction Verification**: Only edges with matching direction $(u \to v)$ are shared. Opposite-direction requests along the same branch (`u → v` vs `v → u`) are rejected as `'opposite_direction'`.
+   - **Vehicle Precedence**: If the vehicle's `currentLocation` has already passed Nusrat's pickup node, the pool is excluded (`'passed_pickup'`).
+   - **Overlap Ratio & Sub-Route Identification**:
+     $$\text{Overlap Ratio} = \frac{\sum \text{Distance}(E_{\text{shared}})}{\text{Total Distance}(E_{\text{nusrat}})}$$
+     - Ratio $= 1.0 \implies$ **Exact Sub-Route** (100% matched, seamless join).
+     - Ratio $> 0 \implies$ **Shared Tree Branch** (partial overlap with automatic leg pooling discounts).
+
+3. **Time Complexity**:
+   - Evaluating 1 candidate pool takes $\mathcal{O}(1)$ operations (since tree size $V=7$ is constant).
+   - Scanning all $N$ active pools takes **$\mathcal{O}(N)$** total time.
+
+---
+
+## 10. Route Direction & Reverse-Passenger Prevention
 
 A critical issue in ride-pooling is direction compatibility. If Bullet is travelling Southbound along Airport Road:
 $$\text{UTTARA (0)} \to \text{BANANI (1)} \to \text{MOHAKHALI (2)} \to \text{GULSHAN (3)} \to \text{BASHUNDHARA (4)}$$
@@ -389,7 +456,7 @@ A passenger at **Mohakhali (Index 2)** attempting to book to **Banani (Index 1)*
 
 ---
 
-## 10. Ride Lifecycle & State Machine
+## 11. Ride Lifecycle & State Machine
 
 ```
 [REQUESTED] 
@@ -414,7 +481,7 @@ A passenger at **Mohakhali (Index 2)** attempting to book to **Banani (Index 1)*
 
 ---
 
-## 11. Project Structure
+## 12. Project Structure
 
 ```
 dhaka-tesla-pool/
@@ -425,6 +492,7 @@ dhaka-tesla-pool/
 │   │   │   └── seed.ts               # Seed data (Jashim, Nusrat, Rafiq, Shirin)
 │   │   ├── src/
 │   │   │   ├── config/
+│   │   │   │   ├── city-tree.ts      # Dhaka Spanning Tree, Prim's MST, LCA & Overlap
 │   │   │   │   ├── fare.ts           # Fare engine & discount calculations
 │   │   │   │   └── zones.ts          # Dhaka zones, matrix & corridors
 │   │   │   ├── modules/
@@ -445,7 +513,7 @@ dhaka-tesla-pool/
 │       ├── components/
 │       │   ├── driver/active-pools.tsx
 │       │   ├── passenger/
-│       │   │   ├── browse-shared-rides.tsx
+│       │   │   ├── browse-shared-rides.tsx # Route-based match & open pool browsing
 │       │   │   ├── my-rides.tsx
 │       │   │   └── request-ride-form.tsx
 │       │   └── ui/                   # Reusable badges, cards & ratings
@@ -464,7 +532,7 @@ dhaka-tesla-pool/
 
 ---
 
-## 12. Local Setup & Installation
+## 13. Local Setup & Installation
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18.x or v20.x recommended)
@@ -522,7 +590,7 @@ Visit **`http://localhost:3000`** in your browser.
 
 ---
 
-## 13. Demo Credentials
+## 14. Demo Credentials
 
 The database is pre-seeded with the story cast and default password `password123`:
 
@@ -535,9 +603,9 @@ The database is pre-seeded with the story cast and default password `password123
 
 ---
 
-## 14. Testing Suite
+## 15. Testing Suite
 
-The project includes **53 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
+The project includes **63 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
 
 To run the test suite:
 ```bash
@@ -546,6 +614,8 @@ npm test
 ```
 
 ### Core Behaviors Tested:
+- **Tree Topology & Spanning Tree**: Prim's algorithm connects all 7 zones with 6 edges, zero cycles, and valid LCA routing.
+- **Tree Route Overlap Matching**: Exact sub-route recognition, reverse direction prevention, and passed-pickup avoidance.
 - **Capacity Limits**: Bullet's 3-seat capacity cannot be exceeded under concurrent join requests.
 - **Fare Calculations**: Nusrat and Rafiq's 30% discount matches manual leg-by-leg math down to the exact paisa.
 - **Direction Enforcement**: Rejects reverse bookings (e.g., Mohakhali to Banani on a Southbound trip).
@@ -555,7 +625,7 @@ npm test
 
 ---
 
-## 15. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)
+## 16. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)
 
 If Dhaka Tesla Pool scales from 1 Tesla to **1,000,000 passengers** and **100,000 drivers**, here is our architectural evolution strategy:
 
@@ -593,7 +663,7 @@ If Dhaka Tesla Pool scales from 1 Tesla to **1,000,000 passengers** and **100,00
 
 ---
 
-## 16. AI Usage Disclosure
+## 17. AI Usage Disclosure
 
 In compliance with the assessment guidelines:
 - **Tools Used**: Google Antigravity, Cursor, Claude 3.5 Sonnet, ChatGPT.
@@ -603,7 +673,7 @@ In compliance with the assessment guidelines:
 
 ---
 
-## 17. Git Workflow & Branching
+## 18. Git Workflow & Branching
 
 The repository strictly follows the branching strategy described in Section 10 of the brief:
 - **`master`**: Stable production-ready baseline.
@@ -618,7 +688,7 @@ The repository strictly follows the branching strategy described in Section 10 o
 
 ---
 
-## 18. Six-Minute Demo Video Walkthrough
+## 19. Six-Minute Demo Video Walkthrough
 
 > **[Click Here to Watch the 6-Minute Loom Walkthrough](https://www.loom.com/share/your-video-link-here)** *(Placeholder)*
 

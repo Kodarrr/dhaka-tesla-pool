@@ -24,7 +24,12 @@ import {
   AvailableSharesQuery,
   JoinPoolInput,
 } from './rides.schema.js';
-import { evaluateShareCandidate, isShareJoinableStage } from './share-discovery.js';
+import {
+  evaluateShareCandidate,
+  evaluateTreeShareCandidate,
+  isShareJoinableStage,
+} from './share-discovery.js';
+import { dhakaTree } from '../../config/city-tree.js';
 import { createNotification } from '../notifications/notifications.service.js';
 
 //  simple ride error handling
@@ -666,7 +671,11 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
  * Optionally filters by a case-insensitive search string matching pickupZone or
  * any current rider's destinationZone.
  */
-export async function listShareableRides(search?: string) {
+export async function listShareableRides(
+  search?: string,
+  pickupZone?: Zone,
+  destinationZone?: Zone
+) {
   const pools = await prisma.pool.findMany({
     where: {
       stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
@@ -704,7 +713,7 @@ export async function listShareableRides(search?: string) {
   });
 
   // Filter in-memory: any pool where seatsTaken < maxCapacity (up to 3)
-  return pools
+  const mapped = pools
     .filter((p) => p.seatsTaken < Math.max(p.seatsCap, 3))
     .map((p) => {
       const effectiveCap = Math.max(p.seatsCap, 3);
@@ -725,6 +734,49 @@ export async function listShareableRides(search?: string) {
           ? `${p.pickupZone} → ${activeDestinations.join(' → ')}`
           : `${p.pickupZone}`);
 
+      // Optional tree evaluation if pickupZone and destinationZone are provided
+      let treeMatch: {
+        eligible: boolean;
+        matchType?: 'EXACT_SUB_ROUTE' | 'SHARED_BRANCH';
+        overlapRatio?: number;
+        userTreeRoute?: Zone[];
+        poolTreeRoute?: Zone[];
+        lca?: Zone;
+      } = { eligible: true };
+
+      if (pickupZone && destinationZone) {
+        const snapshot = {
+          id: p.id,
+          shareable: p.shareable,
+          pickupZone: p.pickupZone,
+          currentLocation: p.currentLocation,
+          corridorId: p.corridorId,
+          stage: p.stage,
+          seatsTaken: p.seatsTaken,
+          seatsCap: p.seatsCap,
+          existingDestinations: activeDestinations,
+        };
+
+        const evalResult = evaluateTreeShareCandidate(snapshot, {
+          pickupZone,
+          destinationZone,
+          seats: 1,
+        });
+
+        if (!evalResult.eligible) {
+          treeMatch = { eligible: false };
+        } else {
+          treeMatch = {
+            eligible: true,
+            matchType: evalResult.isSubRoute ? 'EXACT_SUB_ROUTE' : 'SHARED_BRANCH',
+            overlapRatio: Math.round(evalResult.overlapRatio * 100),
+            userTreeRoute: evalResult.userRoute.path,
+            poolTreeRoute: evalResult.poolRoute.path,
+            lca: evalResult.userRoute.lca,
+          };
+        }
+      }
+
       return {
         poolId: p.id,
         pickupZone: p.pickupZone,
@@ -736,6 +788,7 @@ export async function listShareableRides(search?: string) {
         seatsTaken: p.seatsTaken,
         seatsCap: effectiveCap,
         seatsAvailable: effectiveCap - p.seatsTaken,
+        treeMatch: pickupZone && destinationZone ? treeMatch : undefined,
         riders: p.rideRequests.map((r) => ({
           pickupZone: r.pickupZone,
           destinationZone: r.destinationZone,
@@ -744,7 +797,16 @@ export async function listShareableRides(search?: string) {
         })),
       };
     });
+
+  if (pickupZone && destinationZone) {
+    return mapped
+      .filter((p) => p.treeMatch?.eligible)
+      .sort((a, b) => (b.treeMatch?.overlapRatio ?? 0) - (a.treeMatch?.overlapRatio ?? 0));
+  }
+
+  return mapped;
 }
+
 
 /**
  * Cancels a ride request, freeing pool seats and recomputing fares

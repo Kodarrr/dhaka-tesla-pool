@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateShareCandidate } from '../share-discovery.js';
+import { evaluateShareCandidate, evaluateTreeShareCandidate } from '../share-discovery.js';
 import {
   availableSharesQuerySchema,
   joinPoolSchema,
@@ -88,6 +88,87 @@ describe('available-shares discovery query', () => {
     });
     expect(result.eligible).toBe(false);
     expect(result.reason).toBe('already_a_member');
+  });
+});
+
+describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
+  function activeLongPool() {
+    return {
+      id: 'pool-long-tree',
+      shareable: true,
+      pickupZone: 'UTTARA',
+      currentLocation: 'UTTARA',
+      corridorId: null,
+      stage: 'REQUESTED',
+      seatsTaken: 1,
+      seatsCap: 3,
+      existingDestinations: ['MOTIJHEEL'],
+      memberPassengerIds: ['rider-1'],
+    };
+  }
+
+  it('matches when passenger route is an exact sub-path along the pool tree route', () => {
+    // Pool: Uttara -> Motijheel. Nusrat wants: Gulshan -> Motijheel
+    const match = evaluateTreeShareCandidate(activeLongPool(), {
+      pickupZone: 'GULSHAN',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+      passengerId: 'nusrat',
+    });
+
+    expect(match.eligible).toBe(true);
+    expect(match.isSubRoute).toBe(true);
+    expect(match.overlapRatio).toBe(1.0);
+    expect(match.sharedEdges.length).toBeGreaterThan(0);
+    expect(match.seatsRemaining).toBe(2);
+  });
+
+  it('rejects passengers requesting opposite direction on the tree', () => {
+    // Pool heads South towards Motijheel; passenger wants to head North towards Uttara
+    const match = evaluateTreeShareCandidate(activeLongPool(), {
+      pickupZone: 'DHANMONDI',
+      destinationZone: 'UTTARA',
+      seats: 1,
+      passengerId: 'reverse-rider',
+    });
+
+    expect(match.eligible).toBe(false);
+    expect(match.reason).toBe('opposite_direction');
+  });
+
+  it('rejects when pool vehicle has already passed the passengers pickup node', () => {
+    const passedPool = {
+      ...activeLongPool(),
+      currentLocation: 'MOHAKHALI', // Has already passed Uttara, Bashundhara, Gulshan
+    };
+
+    const match = evaluateTreeShareCandidate(passedPool, {
+      pickupZone: 'GULSHAN',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+      passengerId: 'late-rider',
+    });
+
+    expect(match.eligible).toBe(false);
+    expect(match.reason).toBe('passed_pickup');
+  });
+
+  it('rejects when remaining seats are insufficient', () => {
+    const fullPool = {
+      ...activeLongPool(),
+      seatsTaken: 3,
+      seatsCap: 3,
+    };
+
+    const match = evaluateTreeShareCandidate(fullPool, {
+      pickupZone: 'GULSHAN',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+      passengerId: 'extra-rider',
+    });
+
+    expect(match.eligible).toBe(false);
+    expect(match.reason).toBe('no_capacity');
   });
 });
 

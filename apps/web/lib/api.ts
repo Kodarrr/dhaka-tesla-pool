@@ -281,6 +281,15 @@ export interface ShareableRider {
   passenger?: { id: string; name: string } | null
 }
 
+export interface TreeMatchInfo {
+  eligible: boolean
+  matchType?: 'EXACT_SUB_ROUTE' | 'SHARED_BRANCH'
+  overlapRatio?: number
+  userTreeRoute?: Zone[]
+  poolTreeRoute?: Zone[]
+  lca?: Zone
+}
+
 export interface ShareableRide {
   poolId: string
   pickupZone: Zone
@@ -292,6 +301,7 @@ export interface ShareableRide {
   seatsTaken: number
   seatsCap: number
   seatsAvailable: number
+  treeMatch?: TreeMatchInfo
   riders: ShareableRider[]
 }
 
@@ -299,8 +309,19 @@ export interface ShareableRidesResponse {
   rides: ShareableRide[]
 }
 
-export async function apiGetShareableRides(search?: string): Promise<ShareableRide[]> {
-  const params = search ? { search } : {}
+export interface GetShareableRidesParams {
+  search?: string
+  pickupZone?: Zone
+  destinationZone?: Zone
+}
+
+export async function apiGetShareableRides(
+  paramsOrSearch?: string | GetShareableRidesParams
+): Promise<ShareableRide[]> {
+  const params =
+    typeof paramsOrSearch === 'string'
+      ? { search: paramsOrSearch }
+      : (paramsOrSearch ?? {})
   const { data } = await apiClient.get<{ rides: ShareableRide[] }>('/rides/shareable', { params })
   return data.rides
 }
