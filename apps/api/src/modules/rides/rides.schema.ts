@@ -83,6 +83,8 @@ export type PayRideInput = z.infer<typeof payRideSchema>;
 
 export const shareableQuerySchema = z.object({
   search: z.string().optional(),
+  pickupZone: zoneEnum.optional(),
+  destinationZone: zoneEnum.optional(),
 });
 
 export type ShareableQuery = z.infer<typeof shareableQuerySchema>;

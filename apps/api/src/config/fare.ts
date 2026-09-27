@@ -6,6 +6,7 @@ import {
   findCorridorById,
   findCorridorForRiders,
 } from './zones.js';
+import { dhakaTree, TreeRoute, DirectedTreeEdge } from './city-tree.js';
 
 // Trip-level base fare is not applied per corridor leg. Adjacent-leg price is
 // distance × PER_KM_RATE_BDT so Banani → Mohakhali (2 km) is exactly 100 tk.
@@ -400,4 +401,161 @@ export function calculateFare(
     poolDiscountPaisa: Math.round(discountAmountBDT * 100),
     totalFarePaisa: Math.round(totalFareBDT * 100),
   };
+}
+
+export interface TreePoolInput {
+  riders: RiderRequestInput[];
+  poolDiscountPct?: number;
+  perKmRateBDT?: number;
+}
+
+export interface TreePoolCalculationResult {
+  route: TreeRoute;
+  legs: LegFareBreakdown[];
+  riders: Record<string, RiderFareBreakdown>;
+  totalPoolFareBDT: number;
+  totalPoolFarePaisa: number;
+}
+
+/**
+ * Calculates tree-based pooling fares along physical tree edges.
+ * For each directed tree edge, if 2+ riders share it, a 30% pooling discount is applied.
+ */
+export function calculateTreePoolFares(input: TreePoolInput): TreePoolCalculationResult {
+  const { riders, poolDiscountPct = POOL_DISCOUNT_PCT, perKmRateBDT = PER_KM_RATE_BDT } = input;
+  if (riders.length === 0) {
+    throw new Error('Cannot calculate tree fares without riders');
+  }
+
+  // Derive individual tree routes for each rider
+  const riderRoutes = riders.map((r) => ({
+    rider: r,
+    route: dhakaTree.getRoute(r.pickupZone, r.destinationZone),
+  }));
+
+  // Build the combined sequence of unique directed edges traversed by the vehicle
+  const allEdges: DirectedTreeEdge[] = [];
+  const edgeKeys = new Set<string>();
+
+  for (const { route } of riderRoutes) {
+    for (const edge of route.edges) {
+      const key = `${edge.from}->${edge.to}`;
+      if (!edgeKeys.has(key)) {
+        edgeKeys.add(key);
+        allEdges.push(edge);
+      }
+    }
+  }
+
+  const firstPickup = riders[0].pickupZone;
+  const lastDest = riders[riders.length - 1].destinationZone;
+  const primaryRoute = dhakaTree.getRoute(firstPickup, lastDest);
+
+  // Evaluate each edge
+  const legs: LegFareBreakdown[] = allEdges.map((edge, idx) => {
+    const key = `${edge.from}->${edge.to}`;
+    let riderCount = 0;
+    for (const { route } of riderRoutes) {
+      if (route.edges.some((e) => `${e.from}->${e.to}` === key)) {
+        riderCount += 1;
+      }
+    }
+
+    const discountPct = riderCount >= 2 ? Math.round(poolDiscountPct * 100) : 0;
+    const discountMultiplier = riderCount >= 2 ? 1 - poolDiscountPct : 1.0;
+    const baseFareBDT = edge.distanceKm * perKmRateBDT;
+    const riderFareBDT = Math.round(baseFareBDT * discountMultiplier);
+
+    return {
+      legIndex: idx,
+      fromZone: edge.from,
+      toZone: edge.to,
+      distanceKm: edge.distanceKm,
+      baseFareBDT,
+      riderCount,
+      discountPct,
+      riderFareBDT,
+      riderFarePaisa: riderFareBDT * 100,
+    };
+  });
+
+  const riderResults: Record<string, RiderFareBreakdown> = {};
+  let totalPoolFareBDT = 0;
+
+  for (const { rider, route } of riderRoutes) {
+    const rSeats = rider.seats ?? 1;
+    const riderEdgeKeys = new Set(route.edges.map((e) => `${e.from}->${e.to}`));
+    const rLegs = legs.filter((l) => riderEdgeKeys.has(`${l.fromZone}->${l.toZone}`));
+
+    let sharedLegsCount = 0;
+    let soloLegsCount = 0;
+    let sharedPortionBDT = 0;
+    let soloPortionBDT = 0;
+    let riderTotalBDT = 0;
+    let riderBaseTotalBDT = 0;
+
+    for (const leg of rLegs) {
+      const legBaseFare = leg.baseFareBDT * rSeats;
+      const legDiscountMultiplier = leg.riderCount >= 2 ? 1 - poolDiscountPct : 1.0;
+      const legRiderFare = Math.round(legBaseFare * legDiscountMultiplier);
+
+      riderBaseTotalBDT += legBaseFare;
+      riderTotalBDT += legRiderFare;
+
+      if (leg.riderCount >= 2) {
+        sharedLegsCount += 1;
+        sharedPortionBDT += legRiderFare;
+      } else {
+        soloLegsCount += 1;
+        soloPortionBDT += legRiderFare;
+      }
+    }
+
+    const totalDiscountBDT = Math.max(0, riderBaseTotalBDT - riderTotalBDT);
+
+    riderResults[rider.requestId] = {
+      requestId: rider.requestId,
+      passengerName: rider.passengerName,
+      corridorId: 'CITY_TREE_ROUTE',
+      corridorName: `${rider.pickupZone} → ${rider.destinationZone} (Tree Route)`,
+      pickupZone: rider.pickupZone,
+      destinationZone: rider.destinationZone,
+      seats: rSeats,
+      legs: rLegs,
+      sharedLegsCount,
+      soloLegsCount,
+      sharedPortionBDT,
+      soloPortionBDT,
+      sharedPortionPaisa: sharedPortionBDT * 100,
+      soloPortionPaisa: soloPortionBDT * 100,
+      totalDiscountBDT,
+      totalDiscountPaisa: totalDiscountBDT * 100,
+      totalFareBDT: riderTotalBDT,
+      totalFarePaisa: riderTotalBDT * 100,
+    };
+
+    totalPoolFareBDT += riderTotalBDT;
+  }
+
+  return {
+    route: primaryRoute,
+    legs,
+    riders: riderResults,
+    totalPoolFareBDT,
+    totalPoolFarePaisa: totalPoolFareBDT * 100,
+  };
+}
+
+/**
+ * Calculates solo fare for a trip using its tree route.
+ */
+export function calculateTreeFare(
+  pickupZone: Zone,
+  destinationZone: Zone,
+  seats: number = 1
+): RiderFareBreakdown {
+  const result = calculateTreePoolFares({
+    riders: [{ requestId: 'tree-solo', pickupZone, destinationZone, seats }],
+  });
+  return result.riders['tree-solo'];
 }

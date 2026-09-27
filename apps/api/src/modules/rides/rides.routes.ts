@@ -186,7 +186,12 @@ export default async function rideRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const result = await listShareableRides(parsed.data.search);
+        // const result = await listShareableRides(parsed.data.search);
+        const result = await listShareableRides(
+          parsed.data.search,
+          parsed.data.pickupZone,
+          parsed.data.destinationZone
+        );
         return reply.code(200).send({ rides: result });
       } catch (err) {
         if (err instanceof RideError) {

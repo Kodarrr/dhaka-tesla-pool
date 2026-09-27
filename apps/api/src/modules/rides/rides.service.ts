@@ -24,7 +24,12 @@ import {
   AvailableSharesQuery,
   JoinPoolInput,
 } from './rides.schema.js';
-import { evaluateShareCandidate, isShareJoinableStage } from './share-discovery.js';
+import {
+  evaluateShareCandidate,
+  evaluateTreeShareCandidate,
+  isShareJoinableStage,
+} from './share-discovery.js';
+import { dhakaTree } from '../../config/city-tree.js';
 import { createNotification } from '../notifications/notifications.service.js';
 
 //  simple ride error handling
@@ -116,6 +121,12 @@ export async function estimateRide(input: EstimateRideInput) {
     discountPercentage: fareResult.discountPercentage,
     fareDetails: fareResult,
     breakdown: fareResult.breakdown ?? solo ?? fallbackBreakdown,
+    treeRoute: {
+      path: dhakaTree.getRoute(pickupZone, dropoffZone).path,
+      lca: dhakaTree.getRoute(pickupZone, dropoffZone).lca,
+      totalDistanceKm: dhakaTree.getRoute(pickupZone, dropoffZone).totalDistanceKm,
+      edges: dhakaTree.getRoute(pickupZone, dropoffZone).edges,
+    },
     poolOptions,
   };
 }
@@ -124,9 +135,9 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
   const pickupZone = input.pickupZone as Zone;
   const destinationZone = (input.destinationZone || input.dropoffZone) as Zone;
   const seats = input.seats ?? input.passengerCount ?? 1;
-  const openToShare = input.openToShare ?? false;
-  const maxShareSeats = openToShare ? (input.maxShareSeats ?? 0) : 0;
-  const seatsCap = Math.min(3, seats + maxShareSeats);
+  const openToShare = input.openToShare !== undefined ? input.openToShare : true;
+  const maxShareSeats = openToShare ? (input.maxShareSeats !== undefined ? input.maxShareSeats : (3 - seats)) : 0;
+  const seatsCap = openToShare ? Math.min(3, Math.max(seats + maxShareSeats, 3)) : Math.min(3, seats + maxShareSeats);
 
   if (pickupZone === destinationZone) {
     throw new RideError(400, 'Pickup and destination cannot be the same zone');
@@ -480,8 +491,9 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       throw new RideError(409, 'This ride cannot be joined as it is finishing or completed');
     }
 
-    // Strict atomic concurrency check
-    if (locked.seatsTaken + seats > locked.seatsCap) {
+    // Strict atomic concurrency check (up to vehicle capacity 3)
+    const effectiveCap = Math.max(locked.seatsCap, 3);
+    if (locked.seatsTaken + seats > effectiveCap) {
       throw new RideError(409, 'No available seats remaining in this pool', 'POOL_FULL');
     }
 
@@ -518,12 +530,42 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       destinationZone
     );
 
-    if (!directionCheck.canJoin) {
+    let canJoin = directionCheck.canJoin;
+    let failureReason = directionCheck.reason;
+
+    if (!canJoin) {
+      // Tree-path overlap evaluation
+      const treeCheck = evaluateTreeShareCandidate(
+        {
+          id: poolId,
+          shareable: locked.shareable,
+          pickupZone: locked.pickupZone,
+          currentLocation: locked.currentLocation,
+          corridorId: locked.corridorId,
+          stage: locked.stage,
+          seatsTaken: locked.seatsTaken,
+          seatsCap: locked.seatsCap,
+          existingDestinations: existingRequests.map((r) => r.destinationZone),
+        },
+        {
+          pickupZone: joinerPickup,
+          destinationZone,
+          seats,
+        }
+      );
+      if (treeCheck.eligible) {
+        canJoin = true;
+        failureReason = undefined;
+      }
+    }
+
+    if (!canJoin) {
       throw new RideError(
         400,
-        directionCheck.reason || 'Cannot join ride: route is in an incompatible or reverse direction'
+        failureReason || 'Cannot join ride: route is in an incompatible or reverse direction'
       );
     }
+
 
     if (directionCheck.corridor && !locked.corridorId) {
       await tx.pool.update({
@@ -602,6 +644,7 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
       where: { id: poolId },
       data: {
         seatsTaken: locked.seatsTaken + seats,
+        seatsCap: effectiveCap,
       },
     });
 
@@ -664,10 +707,13 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
  * Optionally filters by a case-insensitive search string matching pickupZone or
  * any current rider's destinationZone.
  */
-export async function listShareableRides(search?: string) {
+export async function listShareableRides(
+  search?: string,
+  pickupZone?: Zone,
+  destinationZone?: Zone
+) {
   const pools = await prisma.pool.findMany({
     where: {
-      shareable: true,
       stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
       ...(search
         ? {
@@ -702,14 +748,69 @@ export async function listShareableRides(search?: string) {
     orderBy: { createdAt: 'desc' },
   });
 
-  // Filter in-memory: seatsTaken < seatsCap (Prisma can't compare two fields directly)
-  return pools
-    .filter((p) => p.seatsTaken < p.seatsCap)
+  // Filter in-memory: any pool where seatsTaken < maxCapacity (up to 3)
+  const mapped = pools
+    .filter((p) => p.seatsTaken < Math.max(p.seatsCap, 3))
     .map((p) => {
+      const effectiveCap = Math.max(p.seatsCap, 3);
       let corridor = p.corridorId ? findCorridorById(p.corridorId) : undefined;
       if (!corridor && p.rideRequests.length > 0) {
         const dZone = p.rideRequests[0].destinationZone as Zone;
         corridor = findCorridorForRoute(p.pickupZone as Zone, dZone) ?? undefined;
+      }
+
+      const activeDestinations = p.rideRequests.map((r) => r.destinationZone as Zone);
+      const corridorZones = corridor?.zones
+        ? Array.from(corridor.zones)
+        : Array.from(new Set([p.pickupZone as Zone, ...activeDestinations]));
+
+      const corridorName =
+        corridor?.name ??
+        (activeDestinations.length > 0
+          ? `${p.pickupZone} → ${activeDestinations.join(' → ')}`
+          : `${p.pickupZone}`);
+
+      // Optional tree evaluation if pickupZone and destinationZone are provided
+      let treeMatch: {
+        eligible: boolean;
+        matchType?: 'EXACT_SUB_ROUTE' | 'SHARED_BRANCH';
+        overlapRatio?: number;
+        userTreeRoute?: Zone[];
+        poolTreeRoute?: Zone[];
+        lca?: Zone;
+      } = { eligible: true };
+
+      if (pickupZone && destinationZone) {
+        const snapshot = {
+          id: p.id,
+          shareable: p.shareable,
+          pickupZone: p.pickupZone,
+          currentLocation: p.currentLocation,
+          corridorId: p.corridorId,
+          stage: p.stage,
+          seatsTaken: p.seatsTaken,
+          seatsCap: p.seatsCap,
+          existingDestinations: activeDestinations,
+        };
+
+        const evalResult = evaluateTreeShareCandidate(snapshot, {
+          pickupZone,
+          destinationZone,
+          seats: 1,
+        });
+
+        if (!evalResult.eligible) {
+          treeMatch = { eligible: false };
+        } else {
+          treeMatch = {
+            eligible: true,
+            matchType: evalResult.isSubRoute ? 'EXACT_SUB_ROUTE' : 'SHARED_BRANCH',
+            overlapRatio: Math.round(evalResult.overlapRatio * 100),
+            userTreeRoute: evalResult.userRoute.path,
+            poolTreeRoute: evalResult.poolRoute.path,
+            lca: evalResult.userRoute.lca,
+          };
+        }
       }
 
       return {
@@ -717,12 +818,13 @@ export async function listShareableRides(search?: string) {
         pickupZone: p.pickupZone,
         currentLocation: p.currentLocation || p.pickupZone,
         corridorId: corridor?.id ?? p.corridorId ?? null,
-        corridorName: corridor?.name ?? null,
-        corridorZones: corridor?.zones ? Array.from(corridor.zones) : null,
+        corridorName,
+        corridorZones,
         stage: p.stage,
         seatsTaken: p.seatsTaken,
-        seatsCap: p.seatsCap,
-        seatsAvailable: p.seatsCap - p.seatsTaken,
+        seatsCap: effectiveCap,
+        seatsAvailable: effectiveCap - p.seatsTaken,
+        treeMatch: pickupZone && destinationZone ? treeMatch : undefined,
         riders: p.rideRequests.map((r) => ({
           pickupZone: r.pickupZone,
           destinationZone: r.destinationZone,
@@ -731,7 +833,16 @@ export async function listShareableRides(search?: string) {
         })),
       };
     });
+
+  if (pickupZone && destinationZone) {
+    return mapped
+      .filter((p) => p.treeMatch?.eligible)
+      .sort((a, b) => (b.treeMatch?.overlapRatio ?? 0) - (a.treeMatch?.overlapRatio ?? 0));
+  }
+
+  return mapped;
 }
+
 
 /**
  * Cancels a ride request, freeing pool seats and recomputing fares

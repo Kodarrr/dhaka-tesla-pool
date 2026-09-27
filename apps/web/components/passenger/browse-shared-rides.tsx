@@ -19,6 +19,7 @@ import {
   Armchair,
   Navigation,
   Sparkles,
+  Route,
 } from 'lucide-react'
 import { getDistance } from '@/lib/api'
 
@@ -36,39 +37,57 @@ function useDebounce<T>(value: T, delay: number): T {
 interface JoinPanelProps {
   pool: ShareableRide
   onJoined: () => void
+  initialPickup?: Zone
+  initialDestination?: Zone
 }
 
-function JoinPanel({ pool, onJoined }: JoinPanelProps) {
+function JoinPanel({
+  pool,
+  onJoined,
+  initialPickup,
+  initialDestination,
+}: JoinPanelProps) {
   const { isAuthenticated, openAuthModal } = useAuth()
 
-  const cZones = pool.corridorZones && pool.corridorZones.length > 1 ? pool.corridorZones : null
+  const cZones =
+    pool.corridorZones && pool.corridorZones.length > 1
+      ? pool.corridorZones
+      : null
   const currentLoc = pool.currentLocation ?? pool.pickupZone
   const currentZoneIdx = cZones ? cZones.indexOf(currentLoc) : -1
   const minPickupIdx = currentZoneIdx >= 0 ? currentZoneIdx : 0
 
   // Allowed boarding locations:
-  // If corridor is known: stops from current vehicle location up to the stop before the final destination
   const allowedSources: Zone[] = cZones
-    ? (cZones.slice(minPickupIdx, cZones.length - 1).length > 0
-        ? cZones.slice(minPickupIdx, cZones.length - 1)
-        : [currentLoc])
+    ? cZones.slice(minPickupIdx, cZones.length - 1).length > 0
+      ? cZones.slice(minPickupIdx, cZones.length - 1)
+      : [currentLoc]
     : ZONES
 
-  const initialSource: Zone = allowedSources.includes(currentLoc)
-    ? currentLoc
-    : (allowedSources[0] ?? currentLoc)
+  const computedInitialSource: Zone =
+    initialPickup && allowedSources.includes(initialPickup)
+      ? initialPickup
+      : allowedSources.includes(currentLoc)
+      ? currentLoc
+      : allowedSources[0] ?? currentLoc
 
-  const [source, setSource] = useState<Zone>(initialSource)
+  const [source, setSource] = useState<Zone>(computedInitialSource)
 
   // Allowed destinations for selected source:
-  // Strictly zones after the source in corridor order
   const sourceIdx = cZones ? cZones.indexOf(source) : -1
-  const allowedDestinations: Zone[] = cZones && sourceIdx >= 0
-    ? cZones.slice(sourceIdx + 1)
-    : ZONES.filter((z) => z !== source)
+  const allowedDestinations: Zone[] =
+    cZones && sourceIdx >= 0
+      ? cZones.slice(sourceIdx + 1)
+      : ZONES.filter((z) => z !== source)
 
   const [destination, setDestination] = useState<Zone>(() => {
-    return allowedDestinations[0] ?? (ZONES.find((z) => z !== initialSource) ?? 'GULSHAN')
+    if (initialDestination && allowedDestinations.includes(initialDestination)) {
+      return initialDestination
+    }
+    return (
+      allowedDestinations[0] ??
+      (ZONES.find((z) => z !== computedInitialSource) ?? 'GULSHAN')
+    )
   })
 
   const [seats, setSeats] = useState(1)
@@ -87,7 +106,9 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
     const dIdx = cZones.indexOf(destination)
     if (pIdx !== -1 && dIdx !== -1 && pIdx >= dIdx) {
       isReverse = true
-      reverseReason = `Opposite direction: This ride is heading towards ${cZones[cZones.length - 1]}. You cannot travel backwards from ${source} to ${destination}.`
+      reverseReason = `Opposite direction: This ride is heading towards ${
+        cZones[cZones.length - 1]
+      }. You cannot travel backwards from ${source} to ${destination}.`
     }
   }
 
@@ -95,39 +116,42 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
   const isSameZone = source === destination
   const distanceKm = isSameZone ? 0 : getDistance(source, destination)
   const soloBaseRate = distanceKm * 50
-  const perPersonFare = Math.round(soloBaseRate * 0.70)
+  const perPersonFare = Math.round(soloBaseRate * 0.7)
   const totalFare = perPersonFare * seats
-  const totalDiscount = (soloBaseRate * seats) - totalFare
+  const totalDiscount = soloBaseRate * seats - totalFare
 
   const handleSourceChange = (newSource: Zone) => {
     setSource(newSource)
-    let nextAllowed: Zone[]
-    if (cZones) {
-      const idx = cZones.indexOf(newSource)
-      nextAllowed = idx >= 0 ? cZones.slice(idx + 1) : ZONES.filter((z) => z !== newSource)
-    } else {
-      nextAllowed = ZONES.filter((z) => z !== newSource)
-    }
-    if (!nextAllowed.includes(destination)) {
-      setDestination(nextAllowed[0] ?? 'GULSHAN')
+    const newSourceIdx = cZones ? cZones.indexOf(newSource) : -1
+    const newAllowedDests =
+      cZones && newSourceIdx >= 0
+        ? cZones.slice(newSourceIdx + 1)
+        : ZONES.filter((z) => z !== newSource)
+
+    if (!newAllowedDests.includes(destination)) {
+      setDestination(newAllowedDests[0] ?? (newSource === 'GULSHAN' ? 'MOHAKHALI' : 'GULSHAN'))
     }
   }
 
-  const handleJoin = useCallback(async () => {
+  const handleJoin = async () => {
     if (!isAuthenticated) {
       openAuthModal('login')
       return
     }
-    if (source === destination) {
-      setError('Pickup and destination cannot be the same zone')
+
+    if (isSameZone) {
+      setError('Pickup and destination must be different zones')
       return
     }
+
     if (isReverse) {
-      setError(reverseReason || 'Cannot join a ride in the reverse direction')
+      setError(reverseReason)
       return
     }
+
     setError('')
     setLoading(true)
+
     try {
       await apiJoinPool(pool.poolId, {
         pickupZone: source,
@@ -136,21 +160,27 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
         paymentMethod,
       })
       setSuccess(true)
-      setTimeout(onJoined, 1200)
+      setTimeout(() => {
+        onJoined()
+      }, 1200)
     } catch (err: unknown) {
-      const ae = err as { response?: { data?: { error?: string; message?: string } } }
-      const msg = ae.response?.data?.message || (ae.response?.data?.error === 'POOL_FULL' ? 'No available seats remaining in this pool' : 'Failed to join ride. Please try again.')
-      setError(msg)
+      const ae = err as { response?: { data?: { message?: string } } }
+      setError(
+        ae.response?.data?.message ??
+          'Failed to join this ride. It may be full or already departed.'
+      )
     } finally {
       setLoading(false)
     }
-  }, [pool.poolId, source, destination, seats, paymentMethod, isAuthenticated, openAuthModal, onJoined, isReverse, reverseReason])
+  }
 
   if (success) {
     return (
       <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 animate-fade-in">
         <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-        <p className="text-xs font-medium text-emerald-400">Joined corridor pool! Live status is available in My Rides.</p>
+        <p className="text-xs font-medium text-emerald-400">
+          Joined corridor pool! Live status is available in My Rides.
+        </p>
       </div>
     )
   }
@@ -158,9 +188,12 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
   return (
     <div className="mt-3 pt-3 border-t border-dhaka-border/60 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-dhaka-text-body">Join this corridor ride</p>
+        <p className="text-xs font-medium text-dhaka-text-body">
+          Join this corridor ride
+        </p>
         <span className="text-[11px] text-blue-400 flex items-center gap-1 font-medium">
-          <Navigation className="w-3 h-3" /> Vehicle currently at: {pool.currentLocation ?? pool.pickupZone}
+          <Navigation className="w-3 h-3" /> Vehicle currently at:{' '}
+          {pool.currentLocation ?? pool.pickupZone}
         </span>
       </div>
 
@@ -179,7 +212,10 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
             >
               {allowedSources.map((z) => (
                 <option key={z} value={z} style={{ background: '#0f1521' }}>
-                  {ZONE_EMOJI[z]} {z} {z === (pool.currentLocation ?? pool.pickupZone) ? '(Current)' : ''}
+                  {ZONE_EMOJI[z]} {z}{' '}
+                  {z === (pool.currentLocation ?? pool.pickupZone)
+                    ? '(Current)'
+                    : ''}
                 </option>
               ))}
             </select>
@@ -200,11 +236,7 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
               className="zone-select pr-7 text-xs py-2"
             >
               {allowedDestinations.map((z) => (
-                <option
-                  key={z}
-                  value={z}
-                  style={{ background: '#0f1521' }}
-                >
+                <option key={z} value={z} style={{ background: '#0f1521' }}>
                   {ZONE_EMOJI[z]} {z}
                 </option>
               ))}
@@ -243,58 +275,77 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
 
         {/* Payment Method */}
         <div className="space-y-1">
-          <label className="text-xs text-[#4d6080] font-medium">Payment on exit</label>
+          <label className="text-xs text-[#4d6080] font-medium">
+            Payment on exit
+          </label>
           <div className="grid grid-cols-2 gap-1">
             <button
               type="button"
               onClick={() => setPaymentMethod('TESLAPAY')}
               className={cn(
-                'py-1.5 px-1.5 rounded-lg border text-[11px] font-semibold transition-all duration-150',
+                'py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all duration-150 text-center',
                 paymentMethod === 'TESLAPAY'
-                  ? 'border-[#00d4ff] bg-[#00d4ff]/15 text-[#00d4ff]'
+                  ? 'border-[#00d4ff]/70 text-[#00d4ff] bg-[#00d4ff]/10'
                   : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
               )}
             >
-              ⚡ TeslaPay
+              TeslaPay
             </button>
             <button
               type="button"
               onClick={() => setPaymentMethod('CASH')}
               className={cn(
-                'py-1.5 px-1.5 rounded-lg border text-[11px] font-semibold transition-all duration-150',
+                'py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all duration-150 text-center',
                 paymentMethod === 'CASH'
-                  ? 'border-[#00ff9d] bg-[#00ff9d]/15 text-[#00ff9d]'
+                  ? 'border-emerald-500/70 text-emerald-400 bg-emerald-500/10'
                   : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
               )}
             >
-              💵 Cash
+              Cash
             </button>
           </div>
         </div>
       </div>
 
-      {/* Cost Preview Box: before confirmation, the user sees their cost */}
-      {!isSameZone && !isReverse && (
-        <div className="rounded-xl border border-[#00d4ff]/25 bg-[#00d4ff]/5 p-2.5 space-y-1.5 animate-fade-in">
+      {/* Fare preview */}
+      {!isSameZone && (
+        <div className="rounded-xl bg-[#0f172a]/90 border border-[#1f2d44]/60 p-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-[#8ba3c7] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#00d4ff]" />
-              <span>{source} → {destination} ({distanceKm} km)</span>
+            <span className="text-[#8ba3c7]">
+              Shared distance ({source} → {destination}):
             </span>
-            <span className="font-mono text-[#4d6080] line-through text-[11px]">{formatBDT(soloBaseRate * seats)}</span>
+            <span className="font-semibold text-white">{distanceKm} km</span>
+          </div>
+
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[#8ba3c7]">Solo rate (no pool):</span>
+            <span className="text-[#4d6080] line-through">
+              {formatBDT(soloBaseRate * seats)}
+            </span>
           </div>
 
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#00ff9d] font-medium flex items-center gap-1">
-              <span>Pool Shared Savings</span>
-              <span className="text-[10px] px-1 py-0.2 rounded bg-[#00ff9d]/10 border border-[#00ff9d]/30 font-semibold">30% OFF</span>
+              <Sparkles className="w-3.5 h-3.5" />
+              Pool Discount (30% off):
             </span>
-            <span className="text-[#00ff9d] font-semibold font-mono">-{formatBDT(totalDiscount)}</span>
+            <span className="font-semibold text-[#00ff9d]">
+              -{formatBDT(totalDiscount)}
+            </span>
           </div>
 
-          <div className="pt-1.5 border-t border-[#00d4ff]/20 flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#f0f4ff]">Your Fare ({seats} seat{seats > 1 ? 's' : ''})</span>
-            <span className="text-sm font-bold font-mono text-[#00d4ff]">{formatBDT(totalFare)}</span>
+          <div className="pt-2 border-t border-[#1f2d44]/80 flex items-center justify-between">
+            <span className="text-xs font-bold text-white">Your Fare:</span>
+            <div className="text-right">
+              <span className="text-base font-extrabold text-[#00d4ff]">
+                {formatBDT(totalFare)}
+              </span>
+              {seats > 1 && (
+                <span className="text-[10px] text-[#4d6080] block">
+                  ({formatBDT(perPersonFare)} × {seats} seats)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -307,7 +358,9 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
       )}
 
       {isSameZone && (
-        <p className="text-xs text-amber-400 font-medium">Pickup and destination must be different zones.</p>
+        <p className="text-xs text-amber-400 font-medium">
+          Pickup and destination must be different zones.
+        </p>
       )}
 
       {error && (
@@ -323,7 +376,11 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
         disabled={loading || isSameZone || isReverse}
         className="btn-primary w-full py-2.5 text-sm font-semibold"
       >
-        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Car className="w-4 h-4" />}
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Car className="w-4 h-4" />
+        )}
         {isAuthenticated
           ? `Confirm & Join Ride • ${formatBDT(totalFare)}`
           : 'Log in to Join'}
@@ -334,7 +391,17 @@ function JoinPanel({ pool, onJoined }: JoinPanelProps) {
 
 // ── PoolCard ──────────────────────────────────────────────────────────────────
 
-function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => void }) {
+function PoolCard({
+  pool,
+  onJoined,
+  defaultPickup,
+  defaultDestination,
+}: {
+  pool: ShareableRide
+  onJoined: () => void
+  defaultPickup?: Zone
+  defaultDestination?: Zone
+}) {
   const [expanded, setExpanded] = useState(false)
 
   const stageBadgeClass =
@@ -351,11 +418,32 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1.5 min-w-0">
-          {/* Prominent Current Location badge */}
+          {/* Tree Match badge if available */}
+          {pool.treeMatch && (
+            <div className="flex items-center gap-1.5 flex-wrap pb-0.5">
+              {pool.treeMatch.matchType === 'EXACT_SUB_ROUTE' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-xs font-semibold text-emerald-400">
+                  <Sparkles className="w-3 h-3 text-emerald-400" />
+                  <span>🎯 100% Route Match (Sub-route)</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#00d4ff]/15 border border-[#00d4ff]/40 text-xs font-semibold text-[#00d4ff]">
+                  <Route className="w-3 h-3 text-[#00d4ff]" />
+                  <span>
+                    🌿 Shared Tree Branch ({pool.treeMatch.overlapRatio}%)
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Current Location badge */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#00d4ff]/15 border border-[#00d4ff]/40 text-xs font-semibold text-[#00d4ff]">
               <Navigation className="w-3 h-3 animate-pulse" />
-              <span>Current: {ZONE_EMOJI[currentLoc]} {currentLoc}</span>
+              <span>
+                Current: {ZONE_EMOJI[currentLoc]} {currentLoc}
+              </span>
             </span>
             <span className="inline-flex items-center gap-1 text-xs text-[#8ba3c7]">
               <MapPin className="w-3 h-3 text-[#4d6080]" />
@@ -377,10 +465,10 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
                     className="text-[#f0f4ff] font-medium"
                   />
                 )}
-                <span>→ {ZONE_EMOJI[r.destinationZone as Zone]} {r.destinationZone}</span>
-                {r.seats > 1 && (
-                  <span className="text-[#4d6080]">×{r.seats}</span>
-                )}
+                <span>
+                  → {ZONE_EMOJI[r.destinationZone as Zone]} {r.destinationZone}
+                </span>
+                {r.seats > 1 && <span className="text-[#4d6080]">×{r.seats}</span>}
               </span>
             ))}
           </div>
@@ -408,7 +496,9 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
                 </span>
               ))}
               {pool.corridorName && (
-                <span className="text-[10px] text-[#4d6080]">({pool.corridorName})</span>
+                <span className="text-[10px] text-[#4d6080]">
+                  ({pool.corridorName})
+                </span>
               )}
             </div>
           )}
@@ -463,6 +553,8 @@ function PoolCard({ pool, onJoined }: { pool: ShareableRide; onJoined: () => voi
       {expanded && (
         <JoinPanel
           pool={pool}
+          initialPickup={defaultPickup}
+          initialDestination={defaultDestination}
           onJoined={() => {
             setExpanded(false)
             onJoined()
@@ -483,26 +575,162 @@ export default function BrowseSharedRides() {
   const [error, setError] = useState('')
   const fetchRef = useRef(0)
 
-  const fetchRides = useCallback(async (q: string) => {
-    const token = ++fetchRef.current
-    setLoading(true)
-    setError('')
-    try {
-      const data = await apiGetShareableRides(q || undefined)
-      if (fetchRef.current === token) setRides(data)
-    } catch {
-      if (fetchRef.current === token) setError('Could not load rides. Is the API running?')
-    } finally {
-      if (fetchRef.current === token) setLoading(false)
-    }
-  }, [])
+  // Route selector state for tree matching
+  const [userPickup, setUserPickup] = useState<Zone>('BANANI')
+  const [userDestination, setUserDestination] = useState<Zone>('MOHAKHALI')
+  const [isRouteMatching, setIsRouteMatching] = useState(false)
+
+  const fetchRides = useCallback(
+    async (
+      q?: string,
+      pickup?: Zone,
+      destination?: Zone,
+      useRouteFilter?: boolean
+    ) => {
+      const token = ++fetchRef.current
+      setLoading(true)
+      setError('')
+      try {
+        const params = {
+          search: q || undefined,
+          pickupZone: useRouteFilter ? pickup : undefined,
+          destinationZone: useRouteFilter ? destination : undefined,
+        }
+        const data = await apiGetShareableRides(params)
+        if (fetchRef.current === token) setRides(data)
+      } catch {
+        if (fetchRef.current === token)
+          setError('Could not load rides. Is the API running?')
+      } finally {
+        if (fetchRef.current === token) setLoading(false)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
-    fetchRides(debouncedSearch)
-  }, [debouncedSearch, fetchRides])
+    fetchRides(
+      debouncedSearch,
+      userPickup,
+      userDestination,
+      isRouteMatching
+    )
+  }, [debouncedSearch, isRouteMatching, fetchRides, userPickup, userDestination])
+
+  const handleFindMatchedRides = () => {
+    if (userPickup === userDestination) return
+    setIsRouteMatching(true)
+    fetchRides(debouncedSearch, userPickup, userDestination, true)
+  }
+
+  const handleClearRouteFilter = () => {
+    setIsRouteMatching(false)
+    fetchRides(debouncedSearch, undefined, undefined, false)
+  }
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {/* Route matching card */}
+      <div className="glass-card p-4 space-y-4 border border-[#00d4ff]/20 bg-[#0c1322]/80">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#00d4ff]" />
+            <h2 className="text-sm font-semibold text-white">
+              Find Matched Rides by Route
+            </h2>
+          </div>
+          {isRouteMatching && (
+            <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              Route Filter Active
+            </span>
+          )}
+        </div>
+
+        <p className="text-xs text-[#8ba3c7]">
+          Select your journey&apos;s pickup and destination. The Dhaka Tree algorithm
+          will instantly match all open rides traveling along your route.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Source Selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[#8ba3c7] flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-[#00d4ff]" />
+              Pickup Zone (Source)
+            </label>
+            <div className="relative">
+              <select
+                value={userPickup}
+                onChange={(e) => setUserPickup(e.target.value as Zone)}
+                className="zone-select pr-8 text-xs py-2.5 w-full bg-[#141d2e] border border-[#1f2d44] rounded-xl text-white focus:border-[#00d4ff] focus:outline-none"
+              >
+                {ZONES.map((z) => (
+                  <option key={z} value={z} style={{ background: '#0f1521' }}>
+                    {ZONE_EMOJI[z]} {z}
+                  </option>
+                ))}
+              </select>
+              <ChevronRight className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#4d6080] rotate-90 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Destination Selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[#8ba3c7] flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-[#00ff9d]" />
+              Dropoff Zone (Destination)
+            </label>
+            <div className="relative">
+              <select
+                value={userDestination}
+                onChange={(e) => setUserDestination(e.target.value as Zone)}
+                className="zone-select pr-8 text-xs py-2.5 w-full bg-[#141d2e] border border-[#1f2d44] rounded-xl text-white focus:border-[#00ff9d] focus:outline-none"
+              >
+                {ZONES.map((z) => (
+                  <option key={z} value={z} style={{ background: '#0f1521' }}>
+                    {ZONE_EMOJI[z]} {z}
+                  </option>
+                ))}
+              </select>
+              <ChevronRight className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#4d6080] rotate-90 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        {userPickup === userDestination && (
+          <p className="text-xs text-amber-400 font-medium">
+            Please choose different pickup and destination zones.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleFindMatchedRides}
+            disabled={userPickup === userDestination || loading}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#00d4ff] to-[#00a3ff] hover:opacity-95 text-[#0a0f1d] font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#00d4ff]/20 transition-all disabled:opacity-50"
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            Find Matched Rides
+          </button>
+
+          {isRouteMatching && (
+            <button
+              type="button"
+              onClick={handleClearRouteFilter}
+              className="py-2.5 px-4 rounded-xl border border-[#1f2d44] hover:bg-[#141d2e] text-[#8ba3c7] hover:text-white font-medium text-xs transition-all"
+            >
+              Show All Rides
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Search bar */}
       <div className="glass-card p-4 space-y-3">
         <div className="flex items-center gap-2">
@@ -512,11 +740,20 @@ export default function BrowseSharedRides() {
           </h2>
           <button
             type="button"
-            onClick={() => fetchRides(debouncedSearch)}
+            onClick={() =>
+              fetchRides(
+                debouncedSearch,
+                userPickup,
+                userDestination,
+                isRouteMatching
+              )
+            }
             className="ml-auto text-dhaka-text-dim hover:text-blue-400 transition-colors"
             title="Refresh"
           >
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            <RefreshCw
+              className={cn('w-3.5 h-3.5', loading && 'animate-spin')}
+            />
           </button>
         </div>
 
@@ -532,7 +769,9 @@ export default function BrowseSharedRides() {
         </div>
 
         <p className="text-xs text-[#4d6080]">
-          Showing all open, joinable rides system-wide. Join any ride — corridor-colliding routes get automatic leg discounts.
+          {isRouteMatching
+            ? `Filtering for rides matching ${userPickup} → ${userDestination}.`
+            : 'Showing all open, joinable rides system-wide. Join any ride — corridor-colliding routes get automatic leg discounts.'}
         </p>
       </div>
 
@@ -554,11 +793,25 @@ export default function BrowseSharedRides() {
       {!loading && rides.length === 0 && !error && (
         <div className="glass-card p-8 text-center space-y-2">
           <Car className="w-8 h-8 text-[#1f2d44] mx-auto" />
-          <p className="text-sm font-semibold text-[#4d6080]">No open rides right now</p>
+          <p className="text-sm font-semibold text-[#4d6080]">
+            {isRouteMatching
+              ? `No active rides currently matching ${userPickup} → ${userDestination}`
+              : 'No open rides right now'}
+          </p>
           <p className="text-xs text-[#4d6080]">
-            {search
-              ? `No rides match "${search}". Try a different zone name.`
-              : 'Be the first to request a shareable ride from the Request tab.'}
+            {isRouteMatching ? (
+              <button
+                type="button"
+                onClick={handleClearRouteFilter}
+                className="text-[#00d4ff] hover:underline"
+              >
+                Click here to show all open rides across Dhaka.
+              </button>
+            ) : search ? (
+              `No rides match "${search}". Try a different zone name.`
+            ) : (
+              'Be the first to request a shareable ride from the Request tab.'
+            )}
           </p>
         </div>
       )}
@@ -567,14 +820,27 @@ export default function BrowseSharedRides() {
       {rides.length > 0 && (
         <div className="space-y-3">
           <p className="text-xs text-[#4d6080] px-1">
-            {rides.length} open ride{rides.length !== 1 ? 's' : ''}
+            {rides.length} {isRouteMatching ? 'matched' : 'open'} ride
+            {rides.length !== 1 ? 's' : ''}
+            {isRouteMatching && ` for ${userPickup} → ${userDestination}`}
             {search && ` matching "${search}"`}
           </p>
           {rides.map((pool) => (
             <PoolCard
               key={pool.poolId}
               pool={pool}
-              onJoined={() => fetchRides(debouncedSearch)}
+              defaultPickup={isRouteMatching ? userPickup : undefined}
+              defaultDestination={
+                isRouteMatching ? userDestination : undefined
+              }
+              onJoined={() =>
+                fetchRides(
+                  debouncedSearch,
+                  userPickup,
+                  userDestination,
+                  isRouteMatching
+                )
+              }
             />
           ))}
         </div>
@@ -582,4 +848,3 @@ export default function BrowseSharedRides() {
     </div>
   )
 }
-

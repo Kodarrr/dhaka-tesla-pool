@@ -47,7 +47,20 @@ describe('Any-to-Any Route & Dummy Location Tests', () => {
     expect(getDistance('BASHUNDHARA', 'GULSHAN')).toBe(5);
     expect(getDistance('DHANMONDI', 'MOHAKHALI')).toBe(8);
   });
+
+  it('returns valid treeRoute with path, LCA hub, and edges for any route', async () => {
+    const estimate = await estimateRide({
+      pickupZone: 'BANANI',
+      destinationZone: 'DHANMONDI',
+      passengerCount: 1,
+    });
+    expect((estimate as any).treeRoute).toBeDefined();
+    expect((estimate as any).treeRoute?.lca).toBe('MOHAKHALI');
+    expect((estimate as any).treeRoute?.path).toEqual(['BANANI', 'MOHAKHALI', 'DHANMONDI']);
+    expect((estimate as any).treeRoute?.edges).toHaveLength(2);
+  });
 });
+
 
 describe('Route Direction & Reverse Passenger Prevention Tests', () => {
   it('rejects joining when passenger destination goes in reverse direction of the pool (Nusrat Uttara->Bashundhara, Rafiq Mohakhali->Banani)', () => {
