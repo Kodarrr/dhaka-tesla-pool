@@ -413,9 +413,9 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
 
   it('correctly discounts shared tree edges and charges full rate on solo tree branches', () => {
     // Rider 1: UTTARA -> MOTIJHEEL
-    // (Edges: UTTARA->BASHUNDHARA (8km), BASHUNDHARA->GULSHAN (5km), GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
-    // Rider 2: GULSHAN -> MOTIJHEEL
-    // (Edges: GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
+    // (Edges: UTTARA->BANANI (10km), BANANI->MOHAKHALI (2km), MOHAKHALI->MOTIJHEEL (9km))
+    // Rider 2: BANANI -> MOTIJHEEL
+    // (Edges: BANANI->MOHAKHALI (2km), MOHAKHALI->MOTIJHEEL (9km))
     const result = calculateTreePoolFares({
       riders: [
         {
@@ -425,8 +425,8 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
           seats: 1,
         },
         {
-          requestId: 'rider-gulshan',
-          pickupZone: 'GULSHAN',
+          requestId: 'rider-banani',
+          pickupZone: 'BANANI',
           destinationZone: 'MOTIJHEEL',
           seats: 1,
         },
@@ -434,26 +434,26 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
     });
 
     const rUttara = result.riders['rider-uttara'];
-    const rGulshan = result.riders['rider-gulshan'];
+    const rBanani = result.riders['rider-banani'];
 
-    // Rider 1 has 5 legs: 2 solo legs and 3 shared legs
-    expect(rUttara.legs).toHaveLength(5);
-    expect(rUttara.soloLegsCount).toBe(2);
-    expect(rUttara.sharedLegsCount).toBe(3);
+    // Rider 1 has 3 legs: 1 solo leg and 2 shared legs
+    expect(rUttara.legs).toHaveLength(3);
+    expect(rUttara.soloLegsCount).toBe(1);
+    expect(rUttara.sharedLegsCount).toBe(2);
 
-    // Solo legs: (8 + 5) * 50 = 650 BDT
-    expect(rUttara.soloPortionBDT).toBe(650);
+    // Solo leg: 10 * 50 = 500 BDT
+    expect(rUttara.soloPortionBDT).toBe(500);
 
-    // Shared legs: (1 + 8 + 6) = 15 km. Undiscounted = 15 * 50 = 750 BDT. 30% off = 525 BDT
-    expect(rUttara.sharedPortionBDT).toBe(525);
-    expect(rUttara.totalFareBDT).toBe(650 + 525); // 1175 BDT
-    expect(rUttara.totalDiscountBDT).toBe(225); // 750 - 525 = 225 BDT saved
+    // Shared legs: (2 + 9) = 11 km. Undiscounted = 11 * 50 = 550 BDT. 30% off = 385 BDT
+    expect(rUttara.sharedPortionBDT).toBe(385);
+    expect(rUttara.totalFareBDT).toBe(500 + 385); // 885 BDT
+    expect(rUttara.totalDiscountBDT).toBe(165); // 550 - 385 = 165 BDT saved
 
-    // Rider 2 has 3 legs, all 3 shared!
-    expect(rGulshan.legs).toHaveLength(3);
-    expect(rGulshan.soloLegsCount).toBe(0);
-    expect(rGulshan.sharedLegsCount).toBe(3);
-    expect(rGulshan.totalFareBDT).toBe(525);
-    expect(rGulshan.totalDiscountBDT).toBe(225);
+    // Rider 2 has 2 legs, all 2 shared!
+    expect(rBanani.legs).toHaveLength(2);
+    expect(rBanani.soloLegsCount).toBe(0);
+    expect(rBanani.sharedLegsCount).toBe(2);
+    expect(rBanani.totalFareBDT).toBe(385);
+    expect(rBanani.totalDiscountBDT).toBe(165);
   });
 });

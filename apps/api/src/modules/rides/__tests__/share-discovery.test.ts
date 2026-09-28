@@ -108,9 +108,9 @@ describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
   }
 
   it('matches when passenger route is an exact sub-path along the pool tree route', () => {
-    // Pool: Uttara -> Motijheel. Nusrat wants: Gulshan -> Motijheel
+    // Pool: Uttara -> Motijheel. Nusrat wants: Banani -> Motijheel
     const match = evaluateTreeShareCandidate(activeLongPool(), {
-      pickupZone: 'GULSHAN',
+      pickupZone: 'BANANI',
       destinationZone: 'MOTIJHEEL',
       seats: 1,
       passengerId: 'nusrat',
@@ -126,7 +126,7 @@ describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
   it('rejects passengers requesting opposite direction on the tree', () => {
     // Pool heads South towards Motijheel; passenger wants to head North towards Uttara
     const match = evaluateTreeShareCandidate(activeLongPool(), {
-      pickupZone: 'DHANMONDI',
+      pickupZone: 'BANANI',
       destinationZone: 'UTTARA',
       seats: 1,
       passengerId: 'reverse-rider',
@@ -139,11 +139,11 @@ describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
   it('rejects when pool vehicle has already passed the passengers pickup node', () => {
     const passedPool = {
       ...activeLongPool(),
-      currentLocation: 'MOHAKHALI', // Has already passed Uttara, Bashundhara, Gulshan
+      currentLocation: 'MOHAKHALI', // Has already passed Uttara and Banani
     };
 
     const match = evaluateTreeShareCandidate(passedPool, {
-      pickupZone: 'GULSHAN',
+      pickupZone: 'BANANI',
       destinationZone: 'MOTIJHEEL',
       seats: 1,
       passengerId: 'late-rider',
@@ -151,6 +151,33 @@ describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
 
     expect(match.eligible).toBe(false);
     expect(match.reason).toBe('passed_pickup');
+  });
+
+  it('does NOT match routes that merely cross at Mohakhali without sharing any directed edge', () => {
+    // Pool: Gulshan -> Dhanmondi (crosses Mohakhali)
+    const gulshanPool = {
+      id: 'pool-gulshan-dhanmondi',
+      shareable: true,
+      pickupZone: 'GULSHAN',
+      currentLocation: 'GULSHAN',
+      stage: 'REQUESTED',
+      corridorId: null,
+      seatsTaken: 1,
+      seatsCap: 3,
+      existingDestinations: ['DHANMONDI'],
+    };
+
+    // Candidate: Banani -> Motijheel (crosses Mohakhali towards Motijheel)
+    const match = evaluateTreeShareCandidate(gulshanPool, {
+      pickupZone: 'BANANI',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+    });
+
+    expect(match.eligible).toBe(false);
+    expect(match.reason).toBe('disjoint_route');
+    expect(match.sharedEdges).toHaveLength(0);
+    expect(match.overlapRatio).toBe(0);
   });
 
   it('rejects when remaining seats are insufficient', () => {
