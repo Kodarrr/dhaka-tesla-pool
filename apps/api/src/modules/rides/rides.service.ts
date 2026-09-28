@@ -328,12 +328,11 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
   const candidates = await prisma.pool.findMany({
     where: {
       shareable: true,
-      pickupZone,
-      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] },
+      stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] },
     },
     include: {
       rideRequests: {
-        where: { stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED'] } },
+        where: { stage: { in: ['REQUESTED', 'MATCHED', 'DRIVER_ARRIVED', 'IN_PROGRESS'] } },
         select: {
           id: true,
           passengerId: true,
@@ -366,7 +365,31 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
       { pickupZone, destinationZone, seats, passengerId }
     );
 
-    if (!eligibility.eligible || !eligibility.corridor) continue;
+    let resolvedCorridor = eligibility.corridor;
+    if (!eligibility.eligible || !resolvedCorridor) {
+      const treeElig = evaluateTreeShareCandidate(
+        {
+          id: pool.id,
+          shareable: pool.shareable,
+          pickupZone: pool.pickupZone,
+          currentLocation: pool.currentLocation,
+          corridorId: pool.corridorId,
+          stage: pool.stage,
+          seatsTaken: pool.seatsTaken,
+          seatsCap: pool.seatsCap,
+          existingDestinations: pool.rideRequests.map((r) => r.destinationZone),
+          activeRiders: pool.rideRequests.map((r) => ({
+            pickupZone: r.pickupZone,
+            destinationZone: r.destinationZone,
+          })),
+        },
+        { pickupZone, destinationZone, seats, passengerId }
+      );
+      if (!treeElig.eligible) continue;
+      resolvedCorridor = findCorridorForRoute(pickupZone, destinationZone) ?? undefined;
+    }
+
+    if (!resolvedCorridor) continue;
 
     const previewRiders = [
       ...pool.rideRequests.map((r) => ({
@@ -384,7 +407,7 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
     ];
 
     const preview = calculateCorridorPoolFares({
-      corridor: eligibility.corridor,
+      corridor: resolvedCorridor,
       pickupZone,
       riders: previewRiders,
     });
@@ -395,8 +418,8 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
     shares.push({
       poolId: pool.id,
       pickupZone: pool.pickupZone,
-      corridorId: eligibility.corridor.id,
-      corridorName: eligibility.corridor.name,
+      corridorId: resolvedCorridor.id,
+      corridorName: resolvedCorridor.name,
       stage: pool.stage,
       seatsTaken: pool.seatsTaken,
       seatsCap: pool.seatsCap,
@@ -546,6 +569,10 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
           seatsTaken: locked.seatsTaken,
           seatsCap: locked.seatsCap,
           existingDestinations: existingRequests.map((r) => r.destinationZone),
+          activeRiders: existingRequests.map((r) => ({
+            pickupZone: r.pickupZone,
+            destinationZone: r.destinationZone,
+          })),
         },
         {
           pickupZone: joinerPickup,
@@ -786,11 +813,15 @@ export async function listShareableRides(
           shareable: p.shareable,
           pickupZone: p.pickupZone,
           currentLocation: p.currentLocation,
-          corridorId: p.corridorId,
+          corridorId: corridor?.id ?? p.corridorId,
           stage: p.stage,
           seatsTaken: p.seatsTaken,
-          seatsCap: p.seatsCap,
+          seatsCap: effectiveCap,
           existingDestinations: activeDestinations,
+          activeRiders: p.rideRequests.map((r) => ({
+            pickupZone: r.pickupZone,
+            destinationZone: r.destinationZone,
+          })),
         };
 
         const evalResult = evaluateTreeShareCandidate(snapshot, {

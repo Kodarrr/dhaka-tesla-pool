@@ -170,6 +170,81 @@ describe('evaluateTreeShareCandidate - Tree-Path Overlap Matching', () => {
     expect(match.eligible).toBe(false);
     expect(match.reason).toBe('no_capacity');
   });
+
+  it('matches when passenger starts at a DIFFERENT pickup zone sharing common tree branch via LCA', () => {
+    // Pool starts at GULSHAN -> DHANMONDI (route: GULSHAN -> MOHAKHALI -> DHANMONDI)
+    const gulshanPool = {
+      id: 'pool-gulshan-dhanmondi',
+      shareable: true,
+      pickupZone: 'GULSHAN',
+      currentLocation: 'GULSHAN',
+      corridorId: null,
+      stage: 'REQUESTED',
+      seatsTaken: 1,
+      seatsCap: 3,
+      existingDestinations: ['DHANMONDI'],
+      memberPassengerIds: ['shirin'],
+    };
+
+    // Candidate starts at BANANI -> DHANMONDI (different pickup from GULSHAN)
+    // Route: BANANI -> MOHAKHALI -> DHANMONDI. Shared branch: MOHAKHALI -> DHANMONDI (8 km)
+    const match = evaluateTreeShareCandidate(gulshanPool, {
+      pickupZone: 'BANANI',
+      destinationZone: 'DHANMONDI',
+      seats: 1,
+      passengerId: 'rafiq',
+    });
+
+    expect(match.eligible).toBe(true);
+    expect(match.sharedEdges.length).toBeGreaterThan(0);
+    expect(match.overlapRatio).toBeGreaterThan(0.5); // 8 km out of 10 km = 80%
+    expect(match.userRoute.lca).toBe('MOHAKHALI');
+  });
+
+  it('matches when passenger starts at a DIFFERENT pickup along a corridor hop', () => {
+    // Pool starts at UTTARA -> MOTIJHEEL on North-South corridor
+    const corridorPool = {
+      ...activeLongPool(),
+      corridorId: 'CORRIDOR_NORTH_SOUTH',
+    };
+
+    // Candidate wants BANANI -> MOHAKHALI (different pickup from UTTARA)
+    const match = evaluateTreeShareCandidate(corridorPool, {
+      pickupZone: 'BANANI',
+      destinationZone: 'MOHAKHALI',
+      seats: 1,
+      passengerId: 'nusrat',
+    });
+
+    expect(match.eligible).toBe(true);
+    expect(match.isSubRoute).toBe(true);
+    expect(match.overlapRatio).toBe(1.0);
+  });
+
+  it('stays joinable when stage is DRIVER_ARRIVED or IN_PROGRESS if pickup not passed', () => {
+    const arrivedPool = {
+      ...activeLongPool(),
+      stage: 'DRIVER_ARRIVED',
+    };
+    const inProgressPool = {
+      ...activeLongPool(),
+      stage: 'IN_PROGRESS',
+    };
+
+    const match1 = evaluateTreeShareCandidate(arrivedPool, {
+      pickupZone: 'GULSHAN',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+    });
+    expect(match1.eligible).toBe(true);
+
+    const match2 = evaluateTreeShareCandidate(inProgressPool, {
+      pickupZone: 'GULSHAN',
+      destinationZone: 'MOTIJHEEL',
+      seats: 1,
+    });
+    expect(match2.eligible).toBe(true);
+  });
 });
 
 describe('Zod schemas for share flow', () => {
