@@ -1516,3 +1516,270 @@ export async function leaveRide(
     poolCompleted,
   };
 }
+
+// ── Ride / Pool Lifecycle Status Transitions ─────────────────────────────────
+
+const VALID_STAGE_TRANSITIONS: Record<string, string[]> = {
+  REQUESTED: ['MATCHED', 'CANCELLED'],
+  MATCHED: ['DRIVER_ARRIVED', 'CANCELLED'],
+  DRIVER_ARRIVED: ['IN_PROGRESS'],
+  IN_PROGRESS: ['ARRIVED_AT_DESTINATION', 'COMPLETED'],
+  ARRIVED_AT_DESTINATION: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+export async function updateRideStatus(
+  userId: string,
+  userRole: string,
+  id: string,
+  targetStage: string
+) {
+  const upperStage = targetStage.toUpperCase();
+  const validStages = [
+    'REQUESTED',
+    'MATCHED',
+    'DRIVER_ARRIVED',
+    'IN_PROGRESS',
+    'ARRIVED_AT_DESTINATION',
+    'COMPLETED',
+    'CANCELLED',
+  ];
+  if (!validStages.includes(upperStage)) {
+    throw new RideError(
+      400,
+      `Invalid stage '${targetStage}'. Must be one of: ${validStages.join(', ')}`,
+      'invalid_stage'
+    );
+  }
+
+  // 1. Look up by RideRequest ID first; fallback to Pool ID
+  let ride = await prisma.rideRequest.findUnique({
+    where: { id },
+    include: {
+      pool: {
+        include: {
+          tesla: { include: { driver: { select: { id: true, name: true } } } },
+          rideRequests: true,
+        },
+      },
+      passenger: { select: { id: true, name: true } },
+    },
+  });
+
+  let pool = null;
+  if (!ride) {
+    pool = await prisma.pool.findUnique({
+      where: { id },
+      include: {
+        tesla: { include: { driver: { select: { id: true, name: true } } } },
+        rideRequests: true,
+      },
+    });
+  } else {
+    pool = ride.pool;
+  }
+
+  if (!ride && !pool) {
+    throw new RideError(404, `Ride or Pool not found with id '${id}'`, 'not_found');
+  }
+
+  const currentStage = ride ? ride.stage : (pool?.stage ?? 'REQUESTED');
+
+  // 2. Validate state transitions (cannot skip stages or transition from terminal states)
+  if (currentStage === upperStage) {
+    return {
+      success: true,
+      message: `Already in ${upperStage} stage`,
+      stage: upperStage,
+      ride,
+      pool,
+    };
+  }
+
+  const allowedNext = VALID_STAGE_TRANSITIONS[currentStage] ?? [];
+  if (!allowedNext.includes(upperStage)) {
+    throw new RideError(
+      400,
+      `Invalid stage transition from ${currentStage} to ${upperStage}. Allowed next stage(s): ${
+        allowedNext.length > 0 ? allowedNext.join(', ') : 'none (terminal stage)'
+      }`,
+      'invalid_transition'
+    );
+  }
+
+  // 3. Authorization check
+  const now = new Date();
+
+  if (upperStage === 'CANCELLED') {
+    // Passenger can only cancel if in REQUESTED state
+    if (userRole === 'PASSENGER') {
+      if (ride && ride.passengerId !== userId) {
+        throw new RideError(403, 'You are not authorized to cancel this ride', 'forbidden');
+      }
+      if (currentStage !== 'REQUESTED') {
+        throw new RideError(
+          400,
+          'Cannot cancel ride once driver has accepted. Cancellation is locked.',
+          'cancellation_locked'
+        );
+      }
+    }
+  } else {
+    // Stage updates (MATCHED, DRIVER_ARRIVED, IN_PROGRESS, COMPLETED) require DRIVER role
+    if (userRole !== 'DRIVER') {
+      throw new RideError(403, 'Only drivers are authorized to update ride status', 'forbidden');
+    }
+
+    const tesla = await prisma.tesla.findUnique({
+      where: { driverId: userId },
+      include: { driver: { select: { id: true, name: true } } },
+    });
+    if (!tesla) {
+      throw new RideError(403, 'No Tesla registered for this driver', 'no_tesla');
+    }
+
+    if (upperStage === 'MATCHED') {
+      if (!tesla.isOnline) {
+        throw new RideError(
+          400,
+          'Driver is offline. Toggle status to Online to accept rides.',
+          'driver_offline'
+        );
+      }
+    } else {
+      // For DRIVER_ARRIVED, IN_PROGRESS, COMPLETED: must be assigned driver
+      if (pool?.teslaId && pool.teslaId !== tesla.id) {
+        throw new RideError(
+          403,
+          'You are not the assigned driver for this ride/pool',
+          'not_assigned_driver'
+        );
+      }
+    }
+  }
+
+  // 4. Atomically update both RideRequest and Pool with corresponding timestamps
+  const poolId = pool?.id ?? ride?.poolId ?? undefined;
+
+  let poolUpdateData: any = { stage: upperStage };
+  let rideUpdateData: any = { stage: upperStage };
+
+  if (upperStage === 'MATCHED') {
+    const tesla = await prisma.tesla.findUnique({ where: { driverId: userId } });
+    if (tesla) poolUpdateData.teslaId = tesla.id;
+    poolUpdateData.matchedAt = pool?.matchedAt ?? now;
+    rideUpdateData.matchedAt = now;
+  } else if (upperStage === 'DRIVER_ARRIVED') {
+    poolUpdateData.arrivedAt = pool?.arrivedAt ?? now;
+    rideUpdateData.arrivedAt = now;
+  } else if (upperStage === 'IN_PROGRESS') {
+    // Maintains existing timestamps and updates stage to IN_PROGRESS
+  } else if (upperStage === 'COMPLETED') {
+    poolUpdateData.completedAt = pool?.completedAt ?? now;
+    rideUpdateData.completedAt = now;
+    rideUpdateData.paymentStatus = 'PAID';
+    rideUpdateData.paidAt = now;
+  } else if (upperStage === 'CANCELLED') {
+    rideUpdateData.cancelledAt = now;
+  }
+
+  const txOps: any[] = [];
+
+  // Update Pool if exists
+  if (poolId) {
+    txOps.push(
+      prisma.pool.update({
+        where: { id: poolId },
+        data: poolUpdateData,
+        include: {
+          tesla: { include: { driver: { select: { id: true, name: true } } } },
+          rideRequests: true,
+        },
+      })
+    );
+
+    // Update active RideRequests in this pool
+    if (upperStage === 'CANCELLED' && ride) {
+      txOps.push(
+        prisma.rideRequest.update({
+          where: { id: ride.id },
+          data: rideUpdateData,
+        })
+      );
+    } else {
+      txOps.push(
+        prisma.rideRequest.updateMany({
+          where: {
+            poolId,
+            stage: { not: 'CANCELLED' },
+          },
+          data: rideUpdateData,
+        })
+      );
+    }
+  } else if (ride) {
+    txOps.push(
+      prisma.rideRequest.update({
+        where: { id: ride.id },
+        data: rideUpdateData,
+      })
+    );
+  }
+
+  const txResults = await prisma.$transaction(txOps);
+  const updatedPool = poolId ? txResults[0] : null;
+
+  // Re-fetch ride for consistent return
+  const updatedRide = ride
+    ? await prisma.rideRequest.findUnique({
+        where: { id: ride.id },
+        include: { pool: true, passenger: true },
+      })
+    : null;
+
+  // 5. In-app passenger notifications on stage transitions
+  const activePassengers = pool?.rideRequests?.filter((r) => r.stage !== 'CANCELLED') ?? (ride ? [ride] : []);
+  const driverName = pool?.tesla?.driver?.name ?? 'Your driver';
+
+  const notificationMessages: Record<string, { type: string; msg: string }> = {
+    MATCHED: {
+      type: 'RIDE_ACCEPTED',
+      msg: `${driverName} accepted your ride and is en route.`,
+    },
+    DRIVER_ARRIVED: {
+      type: 'DRIVER_ARRIVED',
+      msg: `${driverName} has arrived at the pickup location.`,
+    },
+    IN_PROGRESS: {
+      type: 'RIDE_STARTED',
+      msg: `Your trip has started with ${driverName}. Have a safe journey!`,
+    },
+    COMPLETED: {
+      type: 'RIDE_COMPLETED',
+      msg: `Trip completed! Thank you for riding with Dhaka Tesla Pool.`,
+    },
+  };
+
+  const notifyInfo = notificationMessages[upperStage];
+  if (notifyInfo) {
+    await Promise.all(
+      activePassengers.map((p) =>
+        createNotification({
+          userId: p.passengerId,
+          type: notifyInfo.type,
+          message: notifyInfo.msg,
+          rideRequestId: p.id,
+          poolId: poolId ?? undefined,
+        }).catch(() => {})
+      )
+    );
+  }
+
+  return {
+    success: true,
+    stage: upperStage,
+    ride: updatedRide,
+    pool: updatedPool,
+  };
+}

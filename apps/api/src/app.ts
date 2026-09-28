@@ -27,11 +27,15 @@ export function buildApp() {
 
   app.register(cors, {
     origin: (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:3000').split(','),
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   });
 
   app.register(authPlugin);
   app.register(authRoutes);
   app.register(rideRoutes, { prefix: '/api/v1/rides' });
+  app.register(rideRoutes, { prefix: '/api/rides' });
   app.register(driverRoutes, { prefix: '/api/v1/driver' });
   app.register(userRoutes, { prefix: '/api/v1/users' });
   app.register(teslasRoutes, { prefix: '/api/v1/teslas' });

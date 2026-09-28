@@ -128,6 +128,7 @@ export interface FareBreakdown {
   totalDiscountPaisa: number
   totalFareBDT: number
   totalFarePaisa: number
+  totalDistanceKm?: number
 }
 
 export interface EstimateResponse {
@@ -153,6 +154,12 @@ export interface RideRequest {
   corridorId?: string | null
   seats: number
   stage: RideStage
+  openToShare?: boolean
+  maxShareSeats?: number
+  matchedAt?: string | null
+  arrivedAt?: string | null
+  completedAt?: string | null
+  cancelledAt?: string | null
   paymentMethod?: PaymentMethod
   paymentStatus?: PaymentStatus
   paidAt?: string | null
@@ -433,6 +440,24 @@ export async function apiCompleteRide(poolId: string) {
 
 export async function apiDriverComplete(poolId: string) {
   return apiCompleteRide(poolId)
+}
+
+export async function apiDriverStart(poolId: string) {
+  try {
+    const { data } = await apiClient.patch<{ success: boolean; pool: any }>(`/rides/${poolId}/status`, { status: 'IN_PROGRESS' })
+    return data.pool || data
+  } catch {
+    const { data } = await apiClient.post(`/driver/${poolId}/start`)
+    return data
+  }
+}
+
+export async function apiUpdateRideStatus(id: string, status: RideStage | string) {
+  const { data } = await apiClient.patch<{ success: boolean; stage: string; ride?: any; pool?: any }>(
+    `/rides/${id}/status`,
+    { status }
+  )
+  return data
 }
 
 // ─── Private User History ────────────────────────────────────────────────────
