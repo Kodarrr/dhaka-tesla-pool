@@ -63,132 +63,12 @@ The project is structured as a high-performance **monorepo**:
 ### Main Architecture Diagram
 ![Architecture Diagram](./Architecture_Diagram.png)
 
-### High-Level Component Flow
-```mermaid
-graph TD
-    subgraph ClientLayer ["Client Layer (apps/web)"]
-        UI["Next.js 14 App Router (React, Tailwind CSS)"]
-        AuthCtx["Auth Context (JWT / LocalStorage)"]
-        Polling["Client Polling Hooks (5s Auto-Sync)"]
-    end
 
-    subgraph APILayer ["API Layer (apps/api - Fastify)"]
-        Fastify["Fastify HTTP Server (Port 8000)"]
-        AuthPlugin["JWT Authentication & Role Guard"]
-        
-        subgraph Services ["Application Services"]
-            RidesService["Rides & Pool Service"]
-            DriverService["Driver Lifecycle Service"]
-            FareService["Fare & Corridor Engine"]
-            WalletService["TeslaPay Wallet Service"]
-            NotificationService["In-App Notifications"]
-        end
-    end
-
-    subgraph DataLayer ["Persistence Layer"]
-        Prisma["Prisma ORM Client"]
-        Postgres[("PostgreSQL 16 DB (Port 5432)")]
-    end
-
-    UI --> AuthCtx
-    UI --> Polling
-    Polling -->|"HTTP / REST API"| Fastify
-    Fastify --> AuthPlugin
-    AuthPlugin --> Services
-    Services --> Prisma
-    Prisma -->|"SQL Transactions / FOR UPDATE Locks"| Postgres
-```
 
 ---
 
 ## 3. Entity-Relationship Diagram (ERD)
-
-```mermaid
-erDiagram
-    User ||--o{ RideRequest : "requests as passenger"
-    User ||--o| Tesla : "owns/drives (if driver)"
-    User ||--o{ WalletTransaction : "has transactions"
-    User ||--o{ Notification : "receives"
-    User ||--o{ Review : "writes review"
-
-    Tesla ||--o{ Pool : "assigned to"
-    Pool ||--o{ RideRequest : "contains active riders"
-    RideRequest ||--o| Review : "has"
-
-    User {
-        String id PK
-        String name
-        String email
-        String role "PASSENGER | DRIVER"
-        Int teslaPayBalancePaisa "Default: 50,000 paisa (৳500)"
-        DateTime createdAt
-    }
-
-    Tesla {
-        String id PK
-        String driverId FK
-        String name "e.g. Bullet"
-        String plate "e.g. DHA-3021"
-        Int capacity "3 seats"
-        Boolean isOnline
-    }
-
-    Pool {
-        String id PK
-        String teslaId FK
-        String pickupZone
-        String currentLocation "Dynamic vehicle location"
-        String corridorId "e.g. CORRIDOR_AIRPORT_ROAD"
-        String stage "REQUESTED | MATCHED | DRIVER_ARRIVED | IN_PROGRESS | COMPLETED"
-        Int seatsCap "Max 3"
-        Int seatsTaken
-        Boolean shareable
-        DateTime createdAt
-    }
-
-    RideRequest {
-        String id PK
-        String passengerId FK
-        String poolId FK
-        String pickupZone
-        String destinationZone
-        Int seats
-        String stage "REQUESTED | MATCHED | DRIVER_ARRIVED | IN_PROGRESS | ARRIVED_AT_DESTINATION | COMPLETED | CANCELLED"
-        String paymentMethod "TESLAPAY | CASH"
-        String paymentStatus "UNPAID | PENDING_CONFIRMATION | PAID"
-        Int totalFarePaisa
-        Json fareBreakdown
-        DateTime paidAt
-    }
-
-    WalletTransaction {
-        String id PK
-        String userId FK
-        Int amountPaisa "Positive = Credit, Negative = Debit"
-        String type "TOPUP | RIDE_PAYMENT_DEBIT | RIDE_PAYMENT_CREDIT"
-        String rideRequestId
-        DateTime createdAt
-    }
-
-    Notification {
-        String id PK
-        String userId FK
-        String type "RIDE_ACCEPTED | RIDER_JOINED | CASH_PAYMENT_MARKED | PAYMENT_CONFIRMED"
-        String message
-        Boolean read
-        DateTime createdAt
-    }
-
-    Review {
-        String id PK
-        String rideRequestId FK
-        String passengerId FK
-        String driverId FK
-        Int rating "1 to 5"
-        String comment
-        DateTime createdAt
-    }
-```
+![Entity-Relationship Diagram](./docs/ER-diagram.png)
 
 ---
 
@@ -377,7 +257,7 @@ To eliminate routing ambiguity and enable mathematically deterministic ride-pool
 
 ### Dhaka City Tree Structure Diagram
 <!-- Place your diagram image at docs/dhaka-city-tree.png or update the path below -->
-![Dhaka City Tree Structure Diagram](./docs/dhaka-city-tree.png)
+![Dhaka City Tree Structure Diagram](./docs/dhaka-tree.png)
 
 > 📸 **Image Placeholder**: Add your Dhaka City Tree diagram at `docs/dhaka-city-tree.png` to illustrate the spanning tree hierarchy and hub-and-spoke branches.
 
@@ -393,7 +273,7 @@ Dhaka City's 7 key zones form a single connected component with road distance we
   - `DHANMONDI` $\leftrightarrow$ `MOTIJHEEL` (6 km)
 - **Total Edges**: Exactly $N - 1 = 6$ edges connecting all 7 zones with zero cycles.
 
-```mermaid
+<!-- ```mermaid
 graph TD
     MOHAKHALI["MOHAKHALI (Central Root Hub)"]
     BANANI["BANANI"]
@@ -409,7 +289,7 @@ graph TD
     GULSHAN ---|5 km| BASHUNDHARA
     BASHUNDHARA ---|8 km| UTTARA
     DHANMONDI ---|6 km| MOTIJHEEL
-```
+``` -->
 
 ### Core Algorithmic Mechanics:
 
