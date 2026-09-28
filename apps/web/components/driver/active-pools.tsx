@@ -13,6 +13,7 @@ import {
   apiDriverConfirmCash,
   apiToggleDriverStatus,
 } from '@/lib/api'
+import { useDriverStatus } from '@/lib/use-driver-status'
 
 import { cn, formatBDT, formatDate, ZONE_EMOJI } from '@/lib/utils'
 import type { ActivePool } from '@/lib/api'
@@ -60,6 +61,7 @@ function DriverRatingSummary({ driverId }: { driverId: string }) {
 
 export default function ActivePools() {
   const { isAuthenticated, user } = useAuth()
+  const { isOnline } = useDriverStatus()
   const [pools, setPools] = useState<ActivePool[]>([])
   const [stats, setStats] = useState({ poolsCount: 0, requestsCount: 0 })
   const [loading, setLoading] = useState(false)
@@ -67,15 +69,9 @@ export default function ActivePools() {
   const [lastRefresh, setLast] = useState<Date | null>(null)
   const [actionStates, setActions] = useState<Record<string, { doing: boolean; done: string }>>({})
 
-  // Automatically ensure driver is online in the database on mount
-  useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'DRIVER') return
-    apiToggleDriverStatus(true).catch(() => {})
-  }, [isAuthenticated, user])
-
-  // ── Active pools polling — runs automatically ──────────────────────────────
+  // ── Active pools polling — runs only when online ───────────────────────────
   const fetchActive = useCallback(async () => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !isOnline) return
     setLoading(true)
     setError('')
     try {
@@ -88,14 +84,17 @@ export default function ActivePools() {
     } finally {
       setLoading(false)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, isOnline])
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !isOnline) {
+      setPools([])
+      return
+    }
     fetchActive()
     const interval = setInterval(fetchActive, 5_000)
     return () => clearInterval(interval)
-  }, [fetchActive, isAuthenticated])
+  }, [fetchActive, isAuthenticated, isOnline])
 
   const runAction = useCallback(
     async (targetId: string, label: string, fn: () => Promise<unknown>) => {
@@ -142,15 +141,23 @@ export default function ActivePools() {
       <div className="glass-card p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl border flex items-center justify-center bg-[#00ff9d]/20 border-[#00ff9d]/30">
-              <Car className="w-5 h-5 text-[#00ff9d]" />
+            <div className={cn(
+              "w-10 h-10 rounded-xl border flex items-center justify-center transition-colors",
+              isOnline ? "bg-[#00ff9d]/20 border-[#00ff9d]/30" : "bg-zinc-800/40 border-zinc-700/50"
+            )}>
+              <Car className={cn("w-5 h-5", isOnline ? "text-[#00ff9d]" : "text-zinc-400")} />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-[#f0f4ff]">Driver Dashboard</h2>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="w-2 h-2 rounded-full bg-[#00ff9d] animate-pulse shadow-[0_0_8px_#00ff9d]" />
-                <span className="text-xs font-medium text-[#00ff9d]">
-                  Online · Accepting Passengers
+                <div className={cn(
+                  "w-2 h-2 rounded-full transition-all duration-300",
+                  isOnline ? "bg-[#00ff9d] animate-pulse shadow-[0_0_8px_#00ff9d]" : "bg-zinc-500"
+                )} />
+                <span className={cn("text-xs font-medium transition-colors",
+                  isOnline ? "text-[#00ff9d]" : "text-[#8ba3c7]"
+                )}>
+                  {isOnline ? "Online · Accepting Passengers" : "Offline · Not accepting rides"}
                 </span>
               </div>
               {user?.id && <DriverRatingSummary driverId={user.id} />}
@@ -173,6 +180,21 @@ export default function ActivePools() {
         </div>
       </div>
 
+      {/* When offline, show informative empty card instructing driver to toggle in Navbar */}
+      {!isOnline ? (
+        <div className="glass-card p-12 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 border border-zinc-700/40 flex items-center justify-center mx-auto">
+            <Car className="w-8 h-8 text-zinc-600" />
+          </div>
+          <div>
+            <p className="text-[#8ba3c7] font-semibold text-base">You are currently Offline</p>
+            <p className="text-sm text-[#4d6080] mt-1 max-w-md mx-auto">
+              Switch your status to <span className="text-[#00ff9d] font-semibold">Online</span> in the top navigation bar to start seeing active corridor pools and accepting passenger rides.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
           {/* Feed header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -486,6 +508,8 @@ export default function ActivePools() {
               {pools.length} active pool{pools.length !== 1 ? 's' : ''} · auto-refreshes every 5s
             </p>
           )}
+        </>
+      )}
     </div>
   )
 }

@@ -3,8 +3,52 @@
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { cn } from '@/lib/utils'
-import { Zap, LogOut, LogIn, UserPlus } from 'lucide-react'
+import { Zap, LogOut, LogIn, UserPlus, Loader2 } from 'lucide-react'
 import AuthModal from '@/components/auth-modal'
+import { useDriverStatus } from '@/lib/use-driver-status'
+
+function DriverStatusToggle() {
+  const { isOnline, loading, toggleOnline } = useDriverStatus()
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isOnline}
+      disabled={loading}
+      onClick={() => toggleOnline()}
+      className={cn(
+        'flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm',
+        isOnline
+          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+          : 'bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+      )}
+      title={isOnline ? 'You are Online (Click to go Offline)' : 'You are Offline (Click to go Online)'}
+    >
+      {loading ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+      ) : (
+        <span
+          className={cn(
+            'w-2 h-2 rounded-full transition-all duration-300',
+            isOnline ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]' : 'bg-zinc-500'
+          )}
+        />
+      )}
+      <span className="font-semibold">
+        {isOnline ? 'Online' : 'Offline'}
+      </span>
+      <span
+        className={cn(
+          'w-7 h-4 rounded-full p-0.5 border flex items-center transition-colors',
+          isOnline ? 'bg-emerald-500/40 border-emerald-400 justify-end' : 'bg-zinc-700 border-zinc-600 justify-start'
+        )}
+      >
+        <span className={cn('w-2.5 h-2.5 rounded-full shadow-sm', isOnline ? 'bg-emerald-400' : 'bg-zinc-400')} />
+      </span>
+    </button>
+  )
+}
 
 export default function Navbar() {
   const { user, isAuthenticated, logout, openAuthModal, closeAuthModal, authModal, role } = useAuth()
@@ -29,6 +73,7 @@ export default function Navbar() {
           <div className="flex items-center gap-3">
             {isAuthenticated && user ? (
               <>
+                {user.role === 'DRIVER' && <DriverStatusToggle />}
                 <Link
                   href="/profile"
                   className="flex items-center gap-2.5 min-w-0 group hover:opacity-90 transition-opacity cursor-pointer"

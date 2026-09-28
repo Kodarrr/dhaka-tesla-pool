@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import Navbar from '@/components/navbar'
 import FareEstimator from '@/components/passenger/fare-estimator'
-import MyRides from '@/components/passenger/my-rides'
 import BrowseSharedRides from '@/components/passenger/browse-shared-rides'
+import MyRides from '@/components/passenger/my-rides'
 import ActivePools from '@/components/driver/active-pools'
 import StaticRouteMap from '@/components/static-route-map'
 import { cn } from '@/lib/utils'
@@ -17,11 +17,11 @@ import {
   TrendingDown,
   ChevronRight,
   Loader2,
-  Search,
+  Sparkles,
   Map,
 } from 'lucide-react'
 
-type PassengerTab = 'estimate' | 'browse' | 'rides' | 'map'
+type PassengerTab = 'estimate' | 'matching' | 'rides' | 'map'
 
 export default function Home() {
   const { role, isLoading } = useAuth()
@@ -150,7 +150,7 @@ function PassengerView({
       <div className="flex bg-[#161e2e]/70 backdrop-blur-md border border-[#1f2d44]/50 rounded-2xl p-1.5 gap-1.5 max-w-xl">
         {[
           { id: 'estimate' as const, label: 'Request', icon: <Zap className="w-4 h-4" /> },
-          { id: 'browse' as const, label: 'Browse Pools', icon: <Search className="w-4 h-4" /> },
+          { id: 'matching' as const, label: 'Matching Rides', icon: <Sparkles className="w-4 h-4" /> },
           { id: 'rides' as const, label: 'My Rides', icon: <Car className="w-4 h-4" /> },
           { id: 'map' as const, label: 'Route Map', icon: <Map className="w-4 h-4" /> },
         ].map(({ id, label, icon }) => (
@@ -175,7 +175,13 @@ function PassengerView({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-3 space-y-5">
-            {tab === 'estimate' ? <FareEstimator /> : tab === 'browse' ? <BrowseSharedRides /> : <MyRides />}
+            {tab === 'estimate' ? (
+              <FareEstimator />
+            ) : tab === 'matching' ? (
+              <BrowseSharedRides />
+            ) : (
+              <MyRides />
+            )}
           </div>
 
           {/* Sidebar */}
