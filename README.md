@@ -7,7 +7,10 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat&logo=prisma&logoColor=white)](https://www.prisma.io/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=flat&logo=vitest&logoColor=white)](https://vitest.dev/)
 
+> 🚀 **Live Web App**: [https://dhaka-tesla-pool-gamma.vercel.app](https://dhaka-tesla-pool-gamma.vercel.app)  
+> ⚡ **Live API Backend**: [https://dhaka-tesla-pool-go9a.onrender.com](https://dhaka-tesla-pool-go9a.onrender.com)
 
 ---
 
@@ -544,8 +547,9 @@ Visit `http://localhost:3000` in your browser.
 ## 16. Deployment & Cloud Hosting
 
 ### Live Public URLs
-- **Web Application**: `https://dhaka-tesla-pool.vercel.app` *(Placeholder / Update with live URL)*
-- **API Backend**: `https://dhaka-tesla-pool-api.onrender.com` *(Placeholder / Update with live URL)*
+- **Web Application**: [https://dhaka-tesla-pool-gamma.vercel.app](https://dhaka-tesla-pool-gamma.vercel.app)
+- **API Backend**: [https://dhaka-tesla-pool-go9a.onrender.com](https://dhaka-tesla-pool-go9a.onrender.com)
+- **API Ready Endpoint**: [https://dhaka-tesla-pool-go9a.onrender.com/ready](https://dhaka-tesla-pool-go9a.onrender.com/ready)
 
 ### Free-Tier Cloud Deployment Notes
 In accordance with Section 6 of the project brief (*"free/free-tier only, do not pay. If free backend hosting isn't available, document the constraint and give a reproducible Docker deployment instead"*):
