@@ -13,6 +13,28 @@ import { dhakaTree, TreeRoute, DirectedTreeEdge } from './city-tree.js';
 export const BASE_FARE_BDT = 100;
 export const PER_KM_RATE_BDT = 50;
 export const POOL_DISCOUNT_PCT = 0.3; // 30% off a leg when 2+ ride requests share it
+export const TRAFFIC_SURCHARGE_PER_KM_BDT = 10; // +20% (10 BDT/km)
+export const RAIN_SURCHARGE_PER_KM_BDT = 10;    // +20% (10 BDT/km)
+
+export interface EnvironmentalConditions {
+  trafficJam?: boolean;
+  raining?: boolean;
+  perKmRateBDT?: number;
+}
+
+export function computeEffectivePerKmRate(conditions?: EnvironmentalConditions): number {
+  if (conditions?.perKmRateBDT !== undefined && conditions.perKmRateBDT > 0) {
+    return conditions.perKmRateBDT;
+  }
+  let rate = PER_KM_RATE_BDT;
+  if (conditions?.trafficJam) {
+    rate += TRAFFIC_SURCHARGE_PER_KM_BDT;
+  }
+  if (conditions?.raining) {
+    rate += RAIN_SURCHARGE_PER_KM_BDT;
+  }
+  return rate;
+}
 
 export interface LegFareBreakdown {
   legIndex: number;
@@ -297,11 +319,14 @@ export function calculateCorridorPoolFares(input: CorridorPoolInput): CorridorPo
 export function calculateSoloCorridorFare(
   pickupZone: Zone,
   destinationZone: Zone,
-  seats: number = 1
+  seats: number = 1,
+  options?: EnvironmentalConditions
 ): RiderFareBreakdown {
+  const perKmRateBDT = computeEffectivePerKmRate(options);
   const result = calculateCorridorPoolFares({
     pickupZone,
     riders: [{ requestId: 'solo', pickupZone, destinationZone, seats }],
+    perKmRateBDT,
   });
   return result.riders['solo'];
 }
@@ -320,6 +345,9 @@ export interface FareCalculationResult {
   poolDiscountPaisa: number;
   totalFarePaisa: number;
   breakdown?: RiderFareBreakdown;
+  effectivePerKmRateBDT?: number;
+  trafficSurgeActive?: boolean;
+  rainSurgeActive?: boolean;
 }
 
 export function getFareMultiplier(passengerCount: number): number {
@@ -334,8 +362,13 @@ export function getFareMultiplier(passengerCount: number): number {
 export function calculateFare(
   pickupZone: Zone,
   dropoffZone: Zone,
-  passengerCount: number = 1
+  passengerCount: number = 1,
+  options?: EnvironmentalConditions
 ): FareCalculationResult {
+  const effectiveRate = computeEffectivePerKmRate(options);
+  const trafficSurgeActive = Boolean(options?.trafficJam);
+  const rainSurgeActive = Boolean(options?.raining);
+
   const corridor = findCorridorForRoute(pickupZone, dropoffZone);
 
   if (corridor) {
@@ -350,6 +383,7 @@ export function calculateFare(
       corridor,
       pickupZone,
       riders: dummyRiders,
+      perKmRateBDT: effectiveRate,
     });
 
     const sampleRider = poolResult.riders['rider_1'];
@@ -374,12 +408,15 @@ export function calculateFare(
       poolDiscountPaisa: sampleRider.totalDiscountPaisa * passengerCount,
       totalFarePaisa: totalFareBDT * 100,
       breakdown: sampleRider,
+      effectivePerKmRateBDT: effectiveRate,
+      trafficSurgeActive,
+      rainSurgeActive,
     };
   }
 
   // Fallback for non-corridor direct distance
   const distanceKm = getDistance(pickupZone, dropoffZone);
-  const rawFareBDT = distanceKm * PER_KM_RATE_BDT;
+  const rawFareBDT = distanceKm * effectiveRate;
   const multiplier = getFareMultiplier(passengerCount);
   const discountPercentage = Math.round((1 - multiplier) * 100);
   const perPersonFareBDT = Math.round(rawFareBDT * multiplier);
@@ -400,6 +437,9 @@ export function calculateFare(
     distanceChargePaisa: rawFareBDT * 100,
     poolDiscountPaisa: Math.round(discountAmountBDT * 100),
     totalFarePaisa: Math.round(totalFareBDT * 100),
+    effectivePerKmRateBDT: effectiveRate,
+    trafficSurgeActive,
+    rainSurgeActive,
   };
 }
 
@@ -552,10 +592,13 @@ export function calculateTreePoolFares(input: TreePoolInput): TreePoolCalculatio
 export function calculateTreeFare(
   pickupZone: Zone,
   destinationZone: Zone,
-  seats: number = 1
+  seats: number = 1,
+  options?: EnvironmentalConditions
 ): RiderFareBreakdown {
+  const perKmRateBDT = computeEffectivePerKmRate(options);
   const result = calculateTreePoolFares({
     riders: [{ requestId: 'tree-solo', pickupZone, destinationZone, seats }],
+    perKmRateBDT,
   });
   return result.riders['tree-solo'];
 }

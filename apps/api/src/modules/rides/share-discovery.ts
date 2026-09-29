@@ -1,6 +1,7 @@
 import {
   Corridor,
   Zone,
+  DISTANCE_MATRIX,
   canJoinCorridorPool,
   findCorridorById,
   findCorridorForRiders,
@@ -17,6 +18,17 @@ export type ShareJoinableStage = (typeof SHARE_JOINABLE_STAGES)[number];
 
 export function isShareJoinableStage(stage: string): stage is ShareJoinableStage {
   return (SHARE_JOINABLE_STAGES as readonly string[]).includes(stage);
+}
+
+export const TREE_SHARE_JOINABLE_STAGES = [
+  'REQUESTED',
+  'MATCHED',
+  'DRIVER_ARRIVED',
+  'IN_PROGRESS',
+] as const;
+
+export function isTreeShareJoinableStage(stage: string): boolean {
+  return (TREE_SHARE_JOINABLE_STAGES as readonly string[]).includes(stage);
 }
 
 export interface DiscoverablePoolSnapshot {
@@ -114,14 +126,10 @@ export function evaluateShareCandidate(
  * Tree-Path Overlap Matching Algorithm (Phase 2).
  *
  * Checks if a candidate ride (e.g., Nusrat wanting to travel from pickupZone -> destinationZone)
- * is compatible with an existing pool's unique path on the Dhaka City Tree.
+ * is compatible with an existing pool's path on the Dhaka City Tree.
  *
- * Algorithm:
- * 1. Derives unique directed paths for both pool and user on the Dhaka spanning tree.
- * 2. Compares directed edges: verifies user travels in the SAME direction along the tree.
- * 3. Verifies vehicle's current location has not already passed the user's pickup node.
- * 4. Checks seat capacity and stage eligibility.
- * 5. Returns overlap ratio (1.0 = exact sub-route, >0 = partial branch sharing).
+ * Matches if there is ANY common portion/edges traversed in the same forward direction,
+ * even when the candidate's pickup is different from the pool's origin.
  */
 export function evaluateTreeShareCandidate(
   pool: DiscoverablePoolSnapshot,
@@ -133,13 +141,15 @@ export function evaluateTreeShareCandidate(
   const seatsRemaining = pool.seatsCap - pool.seatsTaken;
 
   // Determine pool's primary route on the tree
-  // Start from origin (or current location if available) to farthest destination
   const poolStart = (pool.pickupZone as Zone) || 'MOHAKHALI';
-  const poolEnd = (pool.existingDestinations[pool.existingDestinations.length - 1] as Zone) || poolStart;
+  const allDestinations = (pool.existingDestinations && pool.existingDestinations.length > 0)
+    ? (pool.existingDestinations as Zone[])
+    : [poolStart];
+  const poolEnd = allDestinations[allDestinations.length - 1];
   const poolRoute = dhakaTree.getRoute(poolStart, poolEnd);
 
   // Check stage
-  if (!isShareJoinableStage(pool.stage)) {
+  if (!isTreeShareJoinableStage(pool.stage)) {
     return {
       eligible: false,
       reason: 'stage_closed',
@@ -194,34 +204,137 @@ export function evaluateTreeShareCandidate(
     };
   }
 
-  // Check if vehicle has already passed user pickup on the tree path
-  if (pool.currentLocation && poolRoute.path.includes(pool.currentLocation as Zone)) {
-    const currIdx = poolRoute.path.indexOf(pool.currentLocation as Zone);
-    const pickupIdx = poolRoute.path.indexOf(query.pickupZone);
-    if (pickupIdx !== -1 && currIdx > pickupIdx) {
-      return {
-        eligible: false,
-        reason: 'passed_pickup',
-        overlapRatio: 0,
-        sharedEdges: [],
-        isSubRoute: false,
-        userRoute,
-        poolRoute,
-        seatsRemaining,
-      };
+  // Resolve pool corridor if any
+  const corridor = pool.corridorId
+    ? findCorridorById(pool.corridorId)
+    : resolvePoolCorridor(pool, query.destinationZone);
+
+  // Check if vehicle has already passed user pickup on the tree path or corridor
+  if (pool.currentLocation) {
+    const currLoc = pool.currentLocation as Zone;
+    if (poolRoute.path.includes(currLoc)) {
+      const currIdx = poolRoute.path.indexOf(currLoc);
+      const pickupIdx = poolRoute.path.indexOf(query.pickupZone);
+      if (pickupIdx !== -1 && currIdx > pickupIdx) {
+        return {
+          eligible: false,
+          reason: 'passed_pickup',
+          overlapRatio: 0,
+          sharedEdges: [],
+          isSubRoute: false,
+          userRoute,
+          poolRoute,
+          seatsRemaining,
+        };
+      }
+    }
+    if (corridor) {
+      const cZones = corridor.zones;
+      const cCurrIdx = cZones.indexOf(currLoc);
+      const cPickupIdx = cZones.indexOf(query.pickupZone);
+      if (cCurrIdx !== -1 && cPickupIdx !== -1 && cCurrIdx > cPickupIdx) {
+        return {
+          eligible: false,
+          reason: 'passed_pickup',
+          overlapRatio: 0,
+          sharedEdges: [],
+          isSubRoute: false,
+          userRoute,
+          poolRoute,
+          seatsRemaining,
+        };
+      }
     }
   }
 
-  // Compute directed tree edge overlap
-  const sharedEdges = dhakaTree.getSharedEdges(poolRoute, userRoute);
-  const overlapRatio = dhakaTree.getOverlapRatio(poolRoute, userRoute);
-  const isSubRoute = dhakaTree.isSubRoute(poolRoute, userRoute);
+  // Collect all directed edges covered by the pool
+  const poolDirectedEdgeKeys = new Set<string>();
+  const poolReversedEdgeKeys = new Set<string>();
 
-  // If no edges overlap in the same direction:
+  const registerEdge = (from: Zone, to: Zone) => {
+    if (from === to) return;
+    poolDirectedEdgeKeys.add(`${from}->${to}`);
+    poolReversedEdgeKeys.add(`${to}->${from}`);
+  };
+
+  const registerTreeRoute = (from: Zone, to: Zone) => {
+    if (from === to) return;
+    const r = dhakaTree.getRoute(from, to);
+    for (const e of r.edges) {
+      registerEdge(e.from, e.to);
+    }
+  };
+
+  // 1. Direct tree routes from start to each destination
+  for (const dest of allDestinations) {
+    registerTreeRoute(poolStart, dest);
+    if (pool.currentLocation && pool.currentLocation !== poolStart) {
+      registerTreeRoute(pool.currentLocation as Zone, dest);
+    }
+  }
+
+  // 2. Active riders' tree routes
+  if (pool.activeRiders && pool.activeRiders.length > 0) {
+    for (const rider of pool.activeRiders) {
+      const rPickup = (rider.pickupZone || pool.pickupZone) as Zone;
+      const rDest = rider.destinationZone as Zone;
+      registerTreeRoute(rPickup, rDest);
+    }
+  }
+
+  // 3. Corridor edges if pool follows an identified corridor
+  if (corridor) {
+    const cZones = corridor.zones;
+    const vehicleZone = (pool.currentLocation || pool.pickupZone) as Zone;
+    const startIdx = Math.max(0, cZones.indexOf(vehicleZone));
+    let maxDestIdx = startIdx;
+    for (const dest of allDestinations) {
+      const idx = cZones.indexOf(dest);
+      if (idx > maxDestIdx) maxDestIdx = idx;
+    }
+
+    for (let i = startIdx; i < maxDestIdx && i < cZones.length - 1; i++) {
+      const u = cZones[i];
+      const v = cZones[i + 1];
+      registerEdge(u, v);
+      registerTreeRoute(u, v);
+    }
+
+    // If query pickup and destination are also on this corridor in forward direction:
+    const qPIdx = cZones.indexOf(query.pickupZone);
+    const qDIdx = cZones.indexOf(query.destinationZone);
+    if (qPIdx !== -1 && qDIdx !== -1 && qPIdx < qDIdx && qPIdx >= startIdx && qDIdx <= maxDestIdx) {
+      for (let i = qPIdx; i < qDIdx; i++) {
+        const u = cZones[i];
+        const v = cZones[i + 1];
+        registerEdge(u, v);
+        registerTreeRoute(u, v);
+      }
+    }
+  }
+
+  // Compute shared edges from userRoute
+  const sharedEdges: DirectedTreeEdge[] = [];
+  for (const edge of userRoute.edges) {
+    if (poolDirectedEdgeKeys.has(`${edge.from}->${edge.to}`)) {
+      sharedEdges.push(edge);
+    }
+  }
+
+  // If tree edges didn't match directly, but user's direct hop or corridor hop is covered:
+  if (sharedEdges.length === 0 && poolDirectedEdgeKeys.has(`${query.pickupZone}->${query.destinationZone}`)) {
+    sharedEdges.push({
+      from: query.pickupZone,
+      to: query.destinationZone,
+      distanceKm: DISTANCE_MATRIX[query.pickupZone][query.destinationZone],
+    });
+  }
+
+  // Check opposite direction
   if (sharedEdges.length === 0) {
-    // Check if traveling in opposite direction along any of the same tree edges
-    const poolReversedEdges = new Set(poolRoute.edges.map((e) => `${e.to}->${e.from}`));
-    const isOpposite = userRoute.edges.some((e) => poolReversedEdges.has(`${e.from}->${e.to}`));
+    const isOpposite = userRoute.edges.some((e) =>
+      poolReversedEdgeKeys.has(`${e.from}->${e.to}`)
+    ) || poolReversedEdgeKeys.has(`${query.pickupZone}->${query.destinationZone}`);
 
     return {
       eligible: false,
@@ -234,6 +347,11 @@ export function evaluateTreeShareCandidate(
       seatsRemaining,
     };
   }
+
+  const sharedDistanceKm = sharedEdges.reduce((sum, e) => sum + e.distanceKm, 0);
+  const totalUserDistanceKm = userRoute.totalDistanceKm > 0 ? userRoute.totalDistanceKm : sharedDistanceKm;
+  const overlapRatio = totalUserDistanceKm > 0 ? Math.min(1.0, sharedDistanceKm / totalUserDistanceKm) : 1.0;
+  const isSubRoute = dhakaTree.isSubRoute(poolRoute, userRoute) || overlapRatio >= 0.99;
 
   // Check if overlap meets threshold
   if (overlapRatio < minOverlap) {

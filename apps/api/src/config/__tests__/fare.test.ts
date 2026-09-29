@@ -413,9 +413,9 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
 
   it('correctly discounts shared tree edges and charges full rate on solo tree branches', () => {
     // Rider 1: UTTARA -> MOTIJHEEL
-    // (Edges: UTTARA->BASHUNDHARA (8km), BASHUNDHARA->GULSHAN (5km), GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
-    // Rider 2: GULSHAN -> MOTIJHEEL
-    // (Edges: GULSHAN->MOHAKHALI (1km), MOHAKHALI->DHANMONDI (8km), DHANMONDI->MOTIJHEEL (6km))
+    // (Edges: UTTARA->BANANI (10km), BANANI->MOHAKHALI (2km), MOHAKHALI->MOTIJHEEL (9km))
+    // Rider 2: BANANI -> MOTIJHEEL
+    // (Edges: BANANI->MOHAKHALI (2km), MOHAKHALI->MOTIJHEEL (9km))
     const result = calculateTreePoolFares({
       riders: [
         {
@@ -425,8 +425,8 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
           seats: 1,
         },
         {
-          requestId: 'rider-gulshan',
-          pickupZone: 'GULSHAN',
+          requestId: 'rider-banani',
+          pickupZone: 'BANANI',
           destinationZone: 'MOTIJHEEL',
           seats: 1,
         },
@@ -434,26 +434,114 @@ describe('Dhaka City Tree - Tree-Based Fare Engine Tests', () => {
     });
 
     const rUttara = result.riders['rider-uttara'];
-    const rGulshan = result.riders['rider-gulshan'];
+    const rBanani = result.riders['rider-banani'];
 
-    // Rider 1 has 5 legs: 2 solo legs and 3 shared legs
-    expect(rUttara.legs).toHaveLength(5);
-    expect(rUttara.soloLegsCount).toBe(2);
-    expect(rUttara.sharedLegsCount).toBe(3);
+    // Rider 1 has 3 legs: 1 solo leg and 2 shared legs
+    expect(rUttara.legs).toHaveLength(3);
+    expect(rUttara.soloLegsCount).toBe(1);
+    expect(rUttara.sharedLegsCount).toBe(2);
 
-    // Solo legs: (8 + 5) * 50 = 650 BDT
-    expect(rUttara.soloPortionBDT).toBe(650);
+    // Solo leg: 10 * 50 = 500 BDT
+    expect(rUttara.soloPortionBDT).toBe(500);
 
-    // Shared legs: (1 + 8 + 6) = 15 km. Undiscounted = 15 * 50 = 750 BDT. 30% off = 525 BDT
-    expect(rUttara.sharedPortionBDT).toBe(525);
-    expect(rUttara.totalFareBDT).toBe(650 + 525); // 1175 BDT
-    expect(rUttara.totalDiscountBDT).toBe(225); // 750 - 525 = 225 BDT saved
+    // Shared legs: (2 + 9) = 11 km. Undiscounted = 11 * 50 = 550 BDT. 30% off = 385 BDT
+    expect(rUttara.sharedPortionBDT).toBe(385);
+    expect(rUttara.totalFareBDT).toBe(500 + 385); // 885 BDT
+    expect(rUttara.totalDiscountBDT).toBe(165); // 550 - 385 = 165 BDT saved
 
-    // Rider 2 has 3 legs, all 3 shared!
-    expect(rGulshan.legs).toHaveLength(3);
-    expect(rGulshan.soloLegsCount).toBe(0);
-    expect(rGulshan.sharedLegsCount).toBe(3);
-    expect(rGulshan.totalFareBDT).toBe(525);
-    expect(rGulshan.totalDiscountBDT).toBe(225);
+    // Rider 2 has 2 legs, all 2 shared!
+    expect(rBanani.legs).toHaveLength(2);
+    expect(rBanani.soloLegsCount).toBe(0);
+    expect(rBanani.sharedLegsCount).toBe(2);
+    expect(rBanani.totalFareBDT).toBe(385);
+    expect(rBanani.totalDiscountBDT).toBe(165);
+  });
+});
+
+describe('Environmental Conditions & Admin Surge (Traffic Jam & Rain) Tests', () => {
+  it('calculates standard fare without surcharges (50 BDT/km)', () => {
+    const fare = calculateSoloCorridorFare('BANANI', 'MOHAKHALI', 1);
+    expect(fare.totalFareBDT).toBe(100); // 2 km * 50 BDT = 100 BDT
+    expect(fare.totalFarePaisa).toBe(10000);
+  });
+
+  it('applies +20% (+10 BDT/km) traffic jam surge correctly', () => {
+    // 2 km * 60 BDT/km = 120 BDT (12000 paisa)
+    const fare = calculateSoloCorridorFare('BANANI', 'MOHAKHALI', 1, { trafficJam: true });
+    expect(fare.totalFareBDT).toBe(120);
+    expect(fare.totalFarePaisa).toBe(12000);
+  });
+
+  it('applies +20% (+10 BDT/km) rain surge correctly', () => {
+    // 2 km * 60 BDT/km = 120 BDT (12000 paisa)
+    const fare = calculateSoloCorridorFare('BANANI', 'MOHAKHALI', 1, { raining: true });
+    expect(fare.totalFareBDT).toBe(120);
+    expect(fare.totalFarePaisa).toBe(12000);
+  });
+
+  it('applies +40% (+20 BDT/km) combined traffic + rain surge correctly', () => {
+    // 2 km * 70 BDT/km = 140 BDT (14000 paisa)
+    const fare = calculateSoloCorridorFare('BANANI', 'MOHAKHALI', 1, { trafficJam: true, raining: true });
+    expect(fare.totalFareBDT).toBe(140);
+    expect(fare.totalFarePaisa).toBe(14000);
+  });
+
+  it('hand-calculable verification: Nusrat and Rafiq pooling with weather & traffic surcharges', () => {
+    // Nusrat: Banani -> Mohakhali (2 km)
+    // Rafiq: Banani -> Gulshan (3 km total: 2 km shared with Nusrat to Mohakhali, 1 km solo to Gulshan)
+    
+    // Scenario 1: Standard (50 BDT/km)
+    const poolNormal = calculateCorridorPoolFares({
+      pickupZone: 'BANANI',
+      riders: [
+        { requestId: 'nusrat', pickupZone: 'BANANI', destinationZone: 'MOHAKHALI' },
+        { requestId: 'rafiq', pickupZone: 'BANANI', destinationZone: 'GULSHAN' },
+      ],
+      perKmRateBDT: 50,
+    });
+    // Nusrat's 2 km is shared: 2 * 50 * 0.70 = 70 BDT
+    expect(poolNormal.riders['nusrat'].totalFareBDT).toBe(70);
+    // Rafiq: 2 km shared (70 BDT) + 1 km solo (50 BDT) = 120 BDT
+    expect(poolNormal.riders['rafiq'].totalFareBDT).toBe(120);
+
+    // Scenario 2: Traffic Jam Active (60 BDT/km)
+    const poolTraffic = calculateCorridorPoolFares({
+      pickupZone: 'BANANI',
+      riders: [
+        { requestId: 'nusrat', pickupZone: 'BANANI', destinationZone: 'MOHAKHALI' },
+        { requestId: 'rafiq', pickupZone: 'BANANI', destinationZone: 'GULSHAN' },
+      ],
+      perKmRateBDT: 60,
+    });
+    // Nusrat's 2 km is shared: 2 * 60 * 0.70 = 84 BDT
+    expect(poolTraffic.riders['nusrat'].totalFareBDT).toBe(84);
+    // Rafiq: 2 km shared (84 BDT) + 1 km solo (60 BDT) = 144 BDT
+    expect(poolTraffic.riders['rafiq'].totalFareBDT).toBe(144);
+
+    // Scenario 3: Raining Active (60 BDT/km)
+    const poolRain = calculateCorridorPoolFares({
+      pickupZone: 'BANANI',
+      riders: [
+        { requestId: 'nusrat', pickupZone: 'BANANI', destinationZone: 'MOHAKHALI' },
+        { requestId: 'rafiq', pickupZone: 'BANANI', destinationZone: 'GULSHAN' },
+      ],
+      perKmRateBDT: 60,
+    });
+    expect(poolRain.riders['nusrat'].totalFareBDT).toBe(84);
+    expect(poolRain.riders['rafiq'].totalFareBDT).toBe(144);
+
+    // Scenario 4: Both Traffic Jam & Raining Active (70 BDT/km)
+    const poolBoth = calculateCorridorPoolFares({
+      pickupZone: 'BANANI',
+      riders: [
+        { requestId: 'nusrat', pickupZone: 'BANANI', destinationZone: 'MOHAKHALI' },
+        { requestId: 'rafiq', pickupZone: 'BANANI', destinationZone: 'GULSHAN' },
+      ],
+      perKmRateBDT: 70,
+    });
+    // Nusrat: 2 * 70 * 0.70 = 98 BDT
+    expect(poolBoth.riders['nusrat'].totalFareBDT).toBe(98);
+    // Rafiq: 2 km shared (98 BDT) + 1 km solo (70 BDT) = 168 BDT
+    expect(poolBoth.riders['rafiq'].totalFareBDT).toBe(168);
   });
 });

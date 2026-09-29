@@ -56,17 +56,17 @@ describe('DhakaCityTree - Phase 1 Spanning Tree Core', () => {
 
   describe('Route Overlap and Sub-Route Matching', () => {
     it('detects when candidate route is an exact sub-route of a base route', () => {
-      // Base: Uttara -> Bashundhara -> Gulshan -> Mohakhali -> Dhanmondi -> Motijheel
+      // Base: Uttara -> Banani -> Mohakhali -> Motijheel
       const baseRoute = dhakaTree.getRoute('UTTARA', 'MOTIJHEEL');
-      // Candidate: Gulshan -> Mohakhali
-      const candRoute = dhakaTree.getRoute('GULSHAN', 'MOHAKHALI');
+      // Candidate: Banani -> Mohakhali
+      const candRoute = dhakaTree.getRoute('BANANI', 'MOHAKHALI');
 
       expect(dhakaTree.isSubRoute(baseRoute, candRoute)).toBe(true);
       expect(dhakaTree.getOverlapRatio(baseRoute, candRoute)).toBe(1.0);
 
       const shared = dhakaTree.getSharedEdges(baseRoute, candRoute);
       expect(shared).toHaveLength(1);
-      expect(shared[0]).toMatchObject({ from: 'GULSHAN', to: 'MOHAKHALI' });
+      expect(shared[0]).toMatchObject({ from: 'BANANI', to: 'MOHAKHALI' });
     });
 
     it('rejects opposite-direction rides even along the same road segment', () => {

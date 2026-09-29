@@ -70,6 +70,9 @@ model RideRequest {
   poolDiscountPaisa   Int            @default(0)
   totalFarePaisa      Int
   createdAt           DateTime       @default(now())
+  matchedAt           DateTime?
+  arrivedAt           DateTime?
+  completedAt         DateTime?
   cancelledAt         DateTime?
   corridorId          String?
   fareBreakdown       Json?
@@ -127,9 +130,16 @@ model WalletTransaction {
   @@index([userId])
 }
 
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 enum Role {
   PASSENGER
   DRIVER
+  ADMIN
 }
 
 enum Stage {

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import {
   acceptPool,
   markArrived,
+  startTrip,
   arriveTrip,
   completeTrip,
   getDriverHistory,
@@ -88,6 +89,30 @@ export default async function driverRoutes(fastify: FastifyInstance) {
     const { poolId } = req.params as { poolId: string };
     try {
       const pool = await arriveTrip(req.user.sub, poolId);
+      return reply.code(200).send({ success: true, pool });
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  fastify.post('/:poolId/start', { preHandler: requireDriver }, async (req, reply) => {
+    const { poolId } = req.params as { poolId: string };
+    try {
+      const pool = await startTrip(req.user.sub, poolId);
+      return reply.code(200).send(pool);
+    } catch (err) {
+      if (err instanceof DriverError)
+        return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  fastify.patch('/:poolId/start', { preHandler: requireDriver }, async (req, reply) => {
+    const { poolId } = req.params as { poolId: string };
+    try {
+      const pool = await startTrip(req.user.sub, poolId);
       return reply.code(200).send({ success: true, pool });
     } catch (err) {
       if (err instanceof DriverError)

@@ -22,6 +22,7 @@ import {
   payRide,
   leaveRide,
   completeRideWithPaymentCheck,
+  updateRideStatus,
   RideError,
 } from './rides.service.js';
 
@@ -346,6 +347,75 @@ export default async function rideRoutes(fastify: FastifyInstance) {
       try {
         const { paymentMethod } = (req.body as any) || {};
         const result = await leaveRide(req.user.sub, id, paymentMethod);
+        return reply.code(200).send(result);
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
+
+  // ── PATCH /:id/status and PUT /:id/status lifecycle transition ───────────────
+  fastify.patch(
+    '/:id/status',
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { status?: string; stage?: string } | undefined;
+      const targetStage = body?.status || body?.stage;
+      if (!targetStage || typeof targetStage !== 'string') {
+        return reply.code(400).send({
+          error: 'invalid_request',
+          message: 'Missing or invalid status/stage in request body',
+        });
+      }
+
+      try {
+        const result = await updateRideStatus(
+          req.user.sub,
+          req.user.role,
+          id,
+          targetStage
+        );
+        return reply.code(200).send(result);
+      } catch (err) {
+        if (err instanceof RideError) {
+          return reply.code(err.statusCode).send({
+            error: err.errorCode || err.message,
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
+  );
+
+  fastify.put(
+    '/:id/status',
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { status?: string; stage?: string } | undefined;
+      const targetStage = body?.status || body?.stage;
+      if (!targetStage || typeof targetStage !== 'string') {
+        return reply.code(400).send({
+          error: 'invalid_request',
+          message: 'Missing or invalid status/stage in request body',
+        });
+      }
+
+      try {
+        const result = await updateRideStatus(
+          req.user.sub,
+          req.user.role,
+          id,
+          targetStage
+        );
         return reply.code(200).send(result);
       } catch (err) {
         if (err instanceof RideError) {

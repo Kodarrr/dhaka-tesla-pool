@@ -6,12 +6,14 @@ import {
   apiGetActiveRides,
   apiDriverAccept,
   apiDriverArrived,
+  apiDriverStart,
   apiDriverArriveAtDestination,
   apiDriverComplete,
   apiGetUserProfile,
   apiDriverConfirmCash,
   apiToggleDriverStatus,
 } from '@/lib/api'
+import { useDriverStatus } from '@/lib/use-driver-status'
 
 import { cn, formatBDT, formatDate, ZONE_EMOJI } from '@/lib/utils'
 import type { ActivePool } from '@/lib/api'
@@ -59,6 +61,7 @@ function DriverRatingSummary({ driverId }: { driverId: string }) {
 
 export default function ActivePools() {
   const { isAuthenticated, user } = useAuth()
+  const { isOnline } = useDriverStatus()
   const [pools, setPools] = useState<ActivePool[]>([])
   const [stats, setStats] = useState({ poolsCount: 0, requestsCount: 0 })
   const [loading, setLoading] = useState(false)
@@ -66,36 +69,7 @@ export default function ActivePools() {
   const [lastRefresh, setLast] = useState<Date | null>(null)
   const [actionStates, setActions] = useState<Record<string, { doing: boolean; done: string }>>({})
 
-  // ── Online / Offline toggle ────────────────────────────────────────────────
-  // Stored in localStorage so it survives page refreshes.
-  // Defaults to OFFLINE — driver must explicitly go online.
-  const storageKey = user?.id ? `driver_online_${user.id}` : 'driver_online'
-  const [isOnline, setIsOnline] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false
-    return localStorage.getItem(storageKey) === 'true'
-  })
-  const [togglingOnline, setTogglingOnline] = useState(false)
-
-  const handleToggleOnline = () => {
-    if (togglingOnline) return
-    const next = !isOnline
-    setIsOnline(next)
-    localStorage.setItem(storageKey, String(next))
-    setError('')
-    if (!next) {
-      // Going offline — clear pools immediately so the UI shows the empty state
-      setPools([])
-      setStats({ poolsCount: 0, requestsCount: 0 })
-    }
-    // Fire-and-forget sync to DB so backend / other passengers know the status.
-    // We don't await or show errors — UI behaviour is purely local.
-    setTogglingOnline(true)
-    apiToggleDriverStatus(next)
-      .catch(() => { /* silent — UI doesn't depend on this */ })
-      .finally(() => setTogglingOnline(false))
-  }
-
-  // ── Active pools polling — only runs when ONLINE ───────────────────────────
+  // ── Active pools polling — runs only when online ───────────────────────────
   const fetchActive = useCallback(async () => {
     if (!isAuthenticated || !isOnline) return
     setLoading(true)
@@ -125,6 +99,7 @@ export default function ActivePools() {
   const runAction = useCallback(
     async (targetId: string, label: string, fn: () => Promise<unknown>) => {
       setActions((prev) => ({ ...prev, [targetId]: { doing: true, done: '' } }))
+      setError('')
       try {
         await fn()
         setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: label } }))
@@ -132,7 +107,23 @@ export default function ActivePools() {
         setTimeout(fetchActive, 1000)
       } catch (err: unknown) {
         const ae = err as { response?: { data?: { error?: string } } }
-        setError(ae.response?.data?.error ?? `Failed to ${label.toLowerCase()}.`)
+        const errMsg = ae.response?.data?.error || ''
+
+        // Auto-heal: If backend says driver is offline, set online in DB and retry!
+        if (errMsg.toLowerCase().includes('offline')) {
+          try {
+            await apiToggleDriverStatus(true)
+            await fn()
+            setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: label } }))
+            fetchActive()
+            setTimeout(fetchActive, 1000)
+            return
+          } catch {
+            // If retry also failed, display error
+          }
+        }
+
+        setError(errMsg || `Failed to ${label.toLowerCase()}.`)
         setActions((prev) => ({ ...prev, [targetId]: { doing: false, done: '' } }))
       }
     },
@@ -172,91 +163,37 @@ export default function ActivePools() {
               {user?.id && <DriverRatingSummary driverId={user.id} />}
             </div>
           </div>
-
-          {/* Toggle switch */}
-          <div className="flex items-center gap-3">
-            <span className={cn(
-              "text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all duration-200 select-none",
-              isOnline
-                ? "bg-[#00ff9d]/15 text-[#00ff9d] border-[#00ff9d]/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]"
-                : "bg-zinc-800/80 text-zinc-400 border-zinc-700"
-            )}>
-              {isOnline ? "ONLINE" : "OFFLINE"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isOnline}
-              disabled={togglingOnline}
-              onClick={handleToggleOnline}
-              className={cn(
-                "relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 p-0.5",
-                "transition-all duration-200 ease-in-out",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00ff9d]",
-                "disabled:opacity-60",
-                isOnline ? "bg-[#00ff9d]/25 border-[#00ff9d]" : "bg-[#162032] border-[#2a3d5e]"
-              )}
-              title={isOnline ? "Click to go Offline" : "Click to go Online"}
-            >
-              <span className="sr-only">Toggle Online Status</span>
-              {togglingOnline ? (
-                <span className="flex items-center justify-center w-full h-full">
-                  <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" />
-                </span>
-              ) : (
-                <span className={cn(
-                  "pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-md",
-                  "transition duration-200 ease-in-out",
-                  isOnline
-                    ? "translate-x-7 bg-[#00ff9d] shadow-[0_0_10px_#00ff9d]"
-                    : "translate-x-0 bg-[#617594]"
-                )} />
-              )}
-            </button>
-          </div>
         </div>
 
-        {/* Stats row — shown only when online */}
-        {isOnline && (
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {[
-              { label: 'Active Pools', value: stats.poolsCount.toString(), color: 'text-[#00d4ff]' },
-              { label: 'Pending Riders', value: stats.requestsCount.toString(), color: 'text-[#00ff9d]' },
-              { label: 'Pool Earnings', value: totalEarnings > 0 ? formatBDT(totalEarnings) : '—', color: 'text-[#f0f4ff]' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="text-center py-2 px-3 rounded-xl bg-[#1c2740]/60 border border-[#1f2d44]/30">
-                <p className={cn('text-xl font-bold', color)}>{value}</p>
-                <p className="text-xs text-[#4d6080] mt-0.5">{label}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          {[
+            { label: 'Active Pools', value: stats.poolsCount.toString(), color: 'text-[#00d4ff]' },
+            { label: 'Pending Riders', value: stats.requestsCount.toString(), color: 'text-[#00ff9d]' },
+            { label: 'Pool Earnings', value: totalEarnings > 0 ? formatBDT(totalEarnings) : '—', color: 'text-[#f0f4ff]' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="text-center py-2 px-3 rounded-xl bg-[#1c2740]/60 border border-[#1f2d44]/30">
+              <p className={cn('text-xl font-bold', color)}>{value}</p>
+              <p className="text-xs text-[#4d6080] mt-0.5">{label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* ── OFFLINE empty state ────────────────────────────────────────────── */}
-      {!isOnline && (
+      {/* When offline, show informative empty card instructing driver to toggle in Navbar */}
+      {!isOnline ? (
         <div className="glass-card p-12 text-center space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 border border-zinc-700/40 flex items-center justify-center mx-auto">
             <Car className="w-8 h-8 text-zinc-600" />
           </div>
           <div>
-            <p className="text-[#8ba3c7] font-semibold text-base">You are Offline</p>
-            <p className="text-sm text-[#4d6080] mt-1">Go online to start accepting ride pools</p>
+            <p className="text-[#8ba3c7] font-semibold text-base">You are currently Offline</p>
+            <p className="text-sm text-[#4d6080] mt-1 max-w-md mx-auto">
+              Switch your status to <span className="text-[#00ff9d] font-semibold">Online</span> in the top navigation bar to start seeing active corridor pools and accepting passenger rides.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={handleToggleOnline}
-            disabled={togglingOnline}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00ff9d]/15 hover:bg-[#00ff9d]/25 text-[#00ff9d] font-semibold text-sm border border-[#00ff9d]/40 transition-all disabled:opacity-50"
-          >
-            {togglingOnline ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-            Go Online
-          </button>
         </div>
-      )}
-
-      {/* ── ONLINE: feed header + pool cards ──────────────────────────────── */}
-      {isOnline && (
+      ) : (
         <>
           {/* Feed header */}
           <div className="flex items-center justify-between">
@@ -481,6 +418,7 @@ export default function ActivePools() {
                       <CheckCircle2 className="w-4 h-4" />
                       {action.done === 'Accept' && 'Pool Accepted! Driver en route.'}
                       {action.done === 'Arrived' && 'Marked Arrived at Pickup!'}
+                      {action.done === 'Start' && 'Trip Started! Have a safe journey.'}
                       {action.done === 'Complete' && 'Journey Completed!'}
                     </div>
                   ) : (
@@ -489,13 +427,8 @@ export default function ActivePools() {
                       {isRequested && (
                         <button
                           onClick={() => runAction(pool.id, 'Accept', () => apiDriverAccept(pool.id))}
-                          disabled={action?.doing || isOnline !== true}
-                          className={cn(
-                            "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200",
-                            isOnline !== true
-                              ? "border-zinc-700/60 text-zinc-500 bg-zinc-900/40 cursor-not-allowed"
-                              : "border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 cursor-pointer disabled:opacity-50"
-                          )}
+                          disabled={action?.doing}
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 cursor-pointer disabled:opacity-50 transition-all duration-200"
                         >
                           {action?.doing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -518,8 +451,20 @@ export default function ActivePools() {
                         </button>
                       )}
 
-                      {/* Status & actions when in progress / arrived */}
-                      {(isArrived || isInProgress || isArrivedAtDestination) && (
+                      {/* Start Trip — when DRIVER_ARRIVED */}
+                      {isArrived && (
+                        <button
+                          onClick={() => runAction(pool.id, 'Start', () => apiDriverStart(pool.id))}
+                          disabled={action?.doing}
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold border border-emerald-400/50 text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 shadow-md shadow-emerald-500/10 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                        >
+                          {action?.doing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
+                          Start Trip (In Progress)
+                        </button>
+                      )}
+
+                      {/* Status & actions when in progress / arrived at destination */}
+                      {(isInProgress || isArrivedAtDestination) && (
                         <div className="space-y-2">
                           {allCompleted ? (
                             <div className="p-3.5 rounded-xl bg-[#00ff9d]/15 border border-[#00ff9d]/30 text-center space-y-1 animate-fade-in">
@@ -540,9 +485,9 @@ export default function ActivePools() {
                               <button
                                 onClick={() => runAction(pool.id, 'Complete', () => apiDriverComplete(pool.id))}
                                 disabled={action?.doing}
-                                className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 underline cursor-pointer disabled:opacity-50"
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-300 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 transition-all cursor-pointer disabled:opacity-50"
                               >
-                                {action?.doing ? 'Finishing…' : 'Drop Off All & Finish'}
+                                {action?.doing ? 'Finishing…' : 'Complete Trip'}
                               </button>
                             </div>
                           )}
@@ -563,7 +508,7 @@ export default function ActivePools() {
               {pools.length} active pool{pools.length !== 1 ? 's' : ''} · auto-refreshes every 5s
             </p>
           )}
-        </> /* end isOnline block */
+        </>
       )}
     </div>
   )

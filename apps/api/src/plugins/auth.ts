@@ -4,7 +4,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 
 export interface JwtPayload {
   sub: string; // user id
-  role: 'PASSENGER' | 'DRIVER';
+  role: 'PASSENGER' | 'DRIVER' | 'ADMIN';
 }
 
 declare module 'fastify' {

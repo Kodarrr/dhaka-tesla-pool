@@ -111,18 +111,20 @@ export default function AuthModal({ mode, onClose, onSwitchMode }: AuthModalProp
             <div className="space-y-1.5">
               <label className="text-xs text-[#8ba3c7] font-medium">Role</label>
               <div className="flex gap-2">
-                {(['PASSENGER', 'DRIVER'] as const).map((r) => (
+                {(['PASSENGER', 'DRIVER', 'ADMIN'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"
                     onClick={() => setRole(r)}
                     className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${
                       role === r
-                        ? 'border-[#00d4ff]/70 text-[#00d4ff] bg-[#00d4ff]/10'
+                        ? r === 'ADMIN'
+                          ? 'border-amber-400/70 text-amber-300 bg-amber-500/10'
+                          : 'border-[#00d4ff]/70 text-[#00d4ff] bg-[#00d4ff]/10'
                         : 'border-[#1f2d44]/50 text-[#4d6080] hover:text-[#8ba3c7]'
                     }`}
                   >
-                    {r}
+                    {r === 'ADMIN' ? 'Admin' : r === 'DRIVER' ? 'Driver' : 'Passenger'}
                   </button>
                 ))}
               </div>
@@ -138,6 +140,43 @@ export default function AuthModal({ mode, onClose, onSwitchMode }: AuthModalProp
             {isLogin ? 'Log in' : 'Sign up'}
           </button>
         </form>
+
+        {/* Demo Cast One-Click Login */}
+        <div className="mt-5 pt-4 border-t border-[#1f2d44]/50">
+          <div className="text-[11px] font-semibold text-[#8ba3c7] mb-2.5 flex items-center justify-between">
+            <span>Demo 1-Click Login</span>
+            <span className="text-[10px] text-[#4d6080]">password123</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: '👑 Admin (Controls)', email: 'admin@gmail.com', border: 'border-amber-500/30 hover:bg-amber-500/10 text-amber-300' },
+              { label: '👤 Nusrat (Passenger)', email: 'nusrat@gmail.com', border: 'border-blue-500/30 hover:bg-blue-500/10 text-blue-300' },
+              { label: '👤 Rafiq (Passenger)', email: 'rafiq@gmail.com', border: 'border-cyan-500/30 hover:bg-cyan-500/10 text-cyan-300' },
+              { label: '🚗 Jashim (Driver)', email: 'jashim@gmail.com', border: 'border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-300' },
+            ].map(({ label, email: demoEmail, border }) => (
+              <button
+                key={demoEmail}
+                type="button"
+                disabled={submitting}
+                onClick={async () => {
+                  setError('')
+                  setSubmitting(true)
+                  try {
+                    await login(demoEmail, 'password123')
+                  } catch (err: unknown) {
+                    const ae = err as { response?: { data?: { message?: string } } }
+                    setError(ae.response?.data?.message || 'Login failed')
+                  } finally {
+                    setSubmitting(false)
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-medium text-left truncate transition-all ${border}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <p className="text-xs text-[#4d6080] text-center mt-4">
           {isLogin ? (

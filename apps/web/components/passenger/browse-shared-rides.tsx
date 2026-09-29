@@ -7,7 +7,6 @@ import { cn, formatBDT, ZONE_EMOJI } from '@/lib/utils'
 import type { ShareableRide, Zone, PaymentMethod } from '@/lib/api'
 import { UserNameBadge } from '@/components/ui/user-profile-card'
 import {
-  Search,
   MapPin,
   Users,
   ChevronRight,
@@ -22,15 +21,6 @@ import {
   Route,
 } from 'lucide-react'
 import { getDistance } from '@/lib/api'
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(value), delay)
-    return () => clearTimeout(id)
-  }, [value, delay])
-  return debounced
-}
 
 // ── JoinPanel ────────────────────────────────────────────────────────────────
 
@@ -568,21 +558,18 @@ function PoolCard({
 // ── BrowseSharedRides (main export) ──────────────────────────────────────────
 
 export default function BrowseSharedRides() {
-  const [search, setSearch] = useState('')
-  const debouncedSearch = useDebounce(search, 350)
   const [rides, setRides] = useState<ShareableRide[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const fetchRef = useRef(0)
 
-  // Route selector state for tree matching
+  // Route selector state for tree matching — default active
   const [userPickup, setUserPickup] = useState<Zone>('BANANI')
   const [userDestination, setUserDestination] = useState<Zone>('MOHAKHALI')
-  const [isRouteMatching, setIsRouteMatching] = useState(false)
+  const [isRouteMatching, setIsRouteMatching] = useState(true)
 
   const fetchRides = useCallback(
     async (
-      q?: string,
       pickup?: Zone,
       destination?: Zone,
       useRouteFilter?: boolean
@@ -592,7 +579,6 @@ export default function BrowseSharedRides() {
       setError('')
       try {
         const params = {
-          search: q || undefined,
           pickupZone: useRouteFilter ? pickup : undefined,
           destinationZone: useRouteFilter ? destination : undefined,
         }
@@ -610,22 +596,21 @@ export default function BrowseSharedRides() {
 
   useEffect(() => {
     fetchRides(
-      debouncedSearch,
       userPickup,
       userDestination,
       isRouteMatching
     )
-  }, [debouncedSearch, isRouteMatching, fetchRides, userPickup, userDestination])
+  }, [isRouteMatching, fetchRides, userPickup, userDestination])
 
   const handleFindMatchedRides = () => {
     if (userPickup === userDestination) return
     setIsRouteMatching(true)
-    fetchRides(debouncedSearch, userPickup, userDestination, true)
+    fetchRides(userPickup, userDestination, true)
   }
 
   const handleClearRouteFilter = () => {
     setIsRouteMatching(false)
-    fetchRides(debouncedSearch, undefined, undefined, false)
+    fetchRides(undefined, undefined, false)
   }
 
   return (
@@ -639,12 +624,26 @@ export default function BrowseSharedRides() {
               Find Matched Rides by Route
             </h2>
           </div>
-          {isRouteMatching && (
-            <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              Route Filter Active
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {isRouteMatching && (
+              <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                Matching Active
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() =>
+                fetchRides(userPickup, userDestination, isRouteMatching)
+              }
+              className="text-[#8ba3c7] hover:text-[#00d4ff] p-1 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw
+                className={cn('w-3.5 h-3.5', loading && 'animate-spin')}
+              />
+            </button>
+          </div>
         </div>
 
         <p className="text-xs text-[#8ba3c7]">
@@ -731,50 +730,6 @@ export default function BrowseSharedRides() {
         </div>
       </div>
 
-      {/* Search bar */}
-      <div className="glass-card p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <Search className="w-4 h-4 text-blue-400" />
-          <h2 className="text-sm font-semibold text-dhaka-text-headline">
-            Browse open corridor rides
-          </h2>
-          <button
-            type="button"
-            onClick={() =>
-              fetchRides(
-                debouncedSearch,
-                userPickup,
-                userDestination,
-                isRouteMatching
-              )
-            }
-            className="ml-auto text-dhaka-text-dim hover:text-blue-400 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw
-              className={cn('w-3.5 h-3.5', loading && 'animate-spin')}
-            />
-          </button>
-        </div>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dhaka-text-dim pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by pickup or destination zone…"
-            className="w-full bg-dhaka-elevated border border-dhaka-border rounded-xl py-2.5 pl-9 pr-4 text-sm text-dhaka-text-headline placeholder-dhaka-text-dim focus:outline-none focus:border-dhaka-cobalt focus:ring-1 focus:ring-dhaka-cobalt transition-all"
-          />
-        </div>
-
-        <p className="text-xs text-[#4d6080]">
-          {isRouteMatching
-            ? `Filtering for rides matching ${userPickup} → ${userDestination}.`
-            : 'Showing all open, joinable rides system-wide. Join any ride — corridor-colliding routes get automatic leg discounts.'}
-        </p>
-      </div>
-
       {/* State feedback */}
       {error && (
         <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
@@ -786,14 +741,14 @@ export default function BrowseSharedRides() {
       {loading && rides.length === 0 && (
         <div className="flex items-center justify-center gap-2 py-10 text-[#4d6080]">
           <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Loading rides…</span>
+          <span className="text-sm">Finding matching corridor rides…</span>
         </div>
       )}
 
       {!loading && rides.length === 0 && !error && (
         <div className="glass-card p-8 text-center space-y-2">
           <Car className="w-8 h-8 text-[#1f2d44] mx-auto" />
-          <p className="text-sm font-semibold text-[#4d6080]">
+          <p className="text-sm font-semibold text-[#8ba3c7]">
             {isRouteMatching
               ? `No active rides currently matching ${userPickup} → ${userDestination}`
               : 'No open rides right now'}
@@ -807,8 +762,6 @@ export default function BrowseSharedRides() {
               >
                 Click here to show all open rides across Dhaka.
               </button>
-            ) : search ? (
-              `No rides match "${search}". Try a different zone name.`
             ) : (
               'Be the first to request a shareable ride from the Request tab.'
             )}
@@ -822,8 +775,7 @@ export default function BrowseSharedRides() {
           <p className="text-xs text-[#4d6080] px-1">
             {rides.length} {isRouteMatching ? 'matched' : 'open'} ride
             {rides.length !== 1 ? 's' : ''}
-            {isRouteMatching && ` for ${userPickup} → ${userDestination}`}
-            {search && ` matching "${search}"`}
+            {isRouteMatching && ` along ${userPickup} → ${userDestination}`}
           </p>
           {rides.map((pool) => (
             <PoolCard
@@ -835,7 +787,6 @@ export default function BrowseSharedRides() {
               }
               onJoined={() =>
                 fetchRides(
-                  debouncedSearch,
                   userPickup,
                   userDestination,
                   isRouteMatching

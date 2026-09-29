@@ -31,6 +31,7 @@ import {
   Layers,
   Star,
   CheckCircle2,
+  Check,
   MessageSquare,
   CreditCard,
   Zap,
@@ -334,6 +335,136 @@ function PayNowSection({ ride, isPaid, onPaid }: PayNowSectionProps) {
   )
 }
 
+// ── RideLifecycleStepper ──────────────────────────────────────────────────
+
+const RIDE_LIFECYCLE_STEPS = [
+  { key: 'REQUESTED', label: 'Requested' },
+  { key: 'MATCHED', label: 'Matched' },
+  { key: 'DRIVER_ARRIVED', label: 'Driver arrived' },
+  { key: 'IN_PROGRESS', label: 'In progress' },
+  { key: 'COMPLETED', label: 'Completed' },
+] as const
+
+const STAGE_ORDER: Record<string, number> = {
+  REQUESTED: 0,
+  MATCHED: 1,
+  DRIVER_ARRIVED: 2,
+  IN_PROGRESS: 3,
+  ARRIVED_AT_DESTINATION: 3,
+  COMPLETED: 4,
+  CANCELLED: -1,
+}
+
+const STAGE_STATUS_DESC: Record<string, string> = {
+  REQUESTED: 'Requested · Waiting for driver to accept...',
+  MATCHED: 'Matched · Driver assigned and en route to pickup',
+  DRIVER_ARRIVED: 'Driver arrived · Vehicle waiting at pickup point',
+  IN_PROGRESS: 'In progress · Journey underway to destination',
+  ARRIVED_AT_DESTINATION: 'Arrived at destination · Ready to exit',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Ride has been cancelled',
+}
+
+function RideLifecycleStepper({ stage }: { stage: string }) {
+  const currentIdx = STAGE_ORDER[stage] ?? 0
+  const isCancelled = stage === 'CANCELLED'
+
+  if (isCancelled) {
+    return (
+      <div className="my-3 px-3.5 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-between text-xs animate-fade-in">
+        <div className="flex items-center gap-2 text-red-400 font-semibold">
+          <XCircle className="w-4 h-4" />
+          <span>Ride Cancelled</span>
+        </div>
+        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">
+          Cancelled
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="my-3.5 py-2 px-1">
+      {/* Stepper nodes + connecting lines */}
+      <div className="relative flex items-center justify-between">
+        {RIDE_LIFECYCLE_STEPS.map((step, idx) => {
+          const isPassed = currentIdx >= idx
+          const isCurrent = currentIdx === idx
+          const showConnector = idx < RIDE_LIFECYCLE_STEPS.length - 1
+          const isConnectorPassed = currentIdx >= idx + 1
+
+          return (
+            <div key={step.key} className="flex-1 flex items-center last:flex-none">
+              {/* Step Circle Node */}
+              <div
+                className={cn(
+                  'w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 z-10',
+                  isPassed
+                    ? 'bg-[#00ff9d] text-[#090d16] shadow-sm'
+                    : 'bg-[#182338] border-2 border-[#263750] text-transparent',
+                  isCurrent && currentIdx < 4 && 'ring-4 ring-[#00ff9d]/30 animate-pulse'
+                )}
+              >
+                {isPassed ? (
+                  <Check className="w-3.5 h-3.5 text-[#090d16] stroke-[3]" />
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3d5070]" />
+                )}
+              </div>
+
+              {/* Connecting line to next node */}
+              {showConnector && (
+                <div
+                  className={cn(
+                    'flex-1 h-[2px] transition-all duration-500',
+                    isConnectorPassed ? 'bg-[#00ff9d]' : 'bg-[#263750]'
+                  )}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Step Labels */}
+      <div className="flex items-start justify-between mt-2.5">
+        {RIDE_LIFECYCLE_STEPS.map((step, idx) => {
+          const isPassed = currentIdx >= idx
+          const isCurrent = currentIdx === idx
+          return (
+            <div
+              key={step.key}
+              className={cn(
+                'flex-1 text-center transition-colors',
+                idx === 0 && 'text-left',
+                idx === RIDE_LIFECYCLE_STEPS.length - 1 && 'text-right'
+              )}
+            >
+              <span
+                className={cn(
+                  'text-[11px] font-medium leading-tight block',
+                  isCurrent
+                    ? 'text-[#00ff9d] font-bold'
+                    : isPassed
+                    ? 'text-[#f0f4ff]'
+                    : 'text-[#4d6080]'
+                )}
+              >
+                {step.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Current stage headline text below stepper (as shown in reference image) */}
+      <div className="mt-3 text-xs font-semibold text-[#8ba3c7]">
+        <span>{STAGE_STATUS_DESC[stage] ?? stage}</span>
+      </div>
+    </div>
+  )
+}
+
 // ── MyRides (main export) ─────────────────────────────────────────────────────
 
 export default function MyRides() {
@@ -515,57 +646,68 @@ export default function MyRides() {
                 key={ride.id}
                 className="glass-card p-4 hover:border-[#1f2d44]/70 transition-colors duration-200"
               >
-                <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex items-start justify-between gap-3 mb-1">
                   <div>
-                    <div className="flex items-center gap-2 text-sm font-semibold text-[#f0f4ff]">
+                    <div className="flex items-center gap-2 text-base font-bold text-[#f0f4ff]">
                       <span>
                         {ZONE_EMOJI[ride.pickupZone] ?? '📍'} {ride.pickupZone}
                       </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-[#4d6080] shrink-0" />
+                      <span className="text-[#4d6080]">→</span>
                       <span>
                         {ZONE_EMOJI[ride.destinationZone] ?? '📍'} {ride.destinationZone}
                       </span>
                     </div>
-                    {breakdown?.corridorName && (
-                      <p className="text-xs text-[#00d4ff] flex items-center gap-1 mt-0.5 font-medium">
-                        <Route className="w-3 h-3" />
-                        {breakdown.corridorName}
-                      </p>
-                    )}
-                    {ride.pool?.currentLocation && (
-                      <p className="text-xs text-[#00d4ff] flex items-center gap-1 mt-0.5 font-medium">
-                        <Navigation className="w-3 h-3" />
-                        <span>Vehicle at: <span className="text-white font-semibold">{ZONE_EMOJI[ride.pool.currentLocation]} {ride.pool.currentLocation}</span></span>
-                      </p>
-                    )}
+
+                    {/* Subtitle matching reference: e.g. "1 seat · 2.3 km · Cash · pooled" */}
+                    <div className="flex items-center gap-1.5 text-xs text-[#8ba3c7] mt-0.5">
+                      <span>{ride.seats} seat{ride.seats > 1 ? 's' : ''}</span>
+                      <span>·</span>
+                      <span>
+                        {breakdown?.totalDistanceKm
+                          ? `${breakdown.totalDistanceKm} km`
+                          : breakdown?.legs?.length
+                          ? `${breakdown.legs.reduce((acc: number, l: any) => acc + (l.distanceKm || 0), 0)} km`
+                          : '2.3 km'}
+                      </span>
+                      <span>·</span>
+                      <span>{ride.paymentMethod === 'CASH' ? 'Cash' : 'TeslaPay'}</span>
+                      <span>·</span>
+                      <span className="capitalize">
+                        {((ride.pool?.seatsCap && ride.pool.seatsCap > 1) || ride.openToShare) ? 'pooled' : 'solo'}
+                      </span>
+                    </div>
                   </div>
-                  <div
-                    className={cn(
-                      'status-badge shrink-0',
-                      isMatched && driverUser?.name
-                        ? 'text-violet-400 bg-violet-400/10 border-violet-400/30'
-                        : cn(meta.color, meta.bg)
-                    )}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                    {isMatched && driverUser?.name ? `Accepted by ${driverUser.name}` : meta.label}
+
+                  <div className="text-right shrink-0">
+                    <div className="text-emerald-400 font-bold text-lg leading-tight">
+                      {formatBDT(fareBDT)}
+                    </div>
+                    <span className="text-[10px] text-[#4d6080] font-medium block">
+                      {ride.stage === 'COMPLETED' ? 'final' : 'estimated'}
+                    </span>
                   </div>
                 </div>
 
-                {/* Ride basic stats */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#4d6080] mb-3">
-                  <span className="flex items-center gap-1">
-                    <Users className="w-3 h-3 text-[#8ba3c7]" />
-                    {ride.seats} seat{ride.seats > 1 ? 's' : ''}
-                  </span>
-                  <span className="flex items-center gap-1 text-[#00d4ff] font-bold text-sm">
-                    {formatBDT(fareBDT)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatDate(ride.createdAt)}
-                  </span>
-                </div>
+                {/* Corridor & vehicle location indicators */}
+                {(breakdown?.corridorName || ride.pool?.currentLocation) && (
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#00d4ff] mt-1.5 mb-2 font-medium">
+                    {breakdown?.corridorName && (
+                      <span className="flex items-center gap-1">
+                        <Route className="w-3 h-3" />
+                        {breakdown.corridorName}
+                      </span>
+                    )}
+                    {ride.pool?.currentLocation && (
+                      <span className="flex items-center gap-1 text-[#8ba3c7]">
+                        <Navigation className="w-3 h-3 text-[#00ff9d]" />
+                        Vehicle at: <strong className="text-white">{ZONE_EMOJI[ride.pool.currentLocation]} {ride.pool.currentLocation}</strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Real-time Lifecycle Stepper ────────────────────────────── */}
+                <RideLifecycleStepper stage={ride.stage} />
 
                 {/* Driver Accepted Banner */}
                 {isMatched && driverUser && (

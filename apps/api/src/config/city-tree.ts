@@ -33,57 +33,46 @@ export interface TreeRoute {
  * - Guaranteed unique directed path between any two zones via their Lowest Common Ancestor (LCA).
  * - Provides O(depth) route finding and O(1) path overlap comparisons for ride sharing.
  */
+/**
+ * Canonical Dhaka City Tree Topology:
+ * Rooted at central transit hub: MOHAKHALI.
+ * Connects all 7 zones with exactly 6 edges:
+ * - MOHAKHALI <-> BANANI (2 km) <-> UTTARA (10 km)
+ * - MOHAKHALI <-> MOTIJHEEL (9 km)
+ * - MOHAKHALI <-> DHANMONDI (8 km)
+ * - MOHAKHALI <-> GULSHAN (1 km) <-> BASHUNDHARA (5 km)
+ */
+export const DHAKA_TREE_EDGES: Array<{ from: Zone; to: Zone; distanceKm: number }> = [
+  { from: 'MOHAKHALI', to: 'BANANI', distanceKm: 2 },
+  { from: 'BANANI', to: 'UTTARA', distanceKm: 10 },
+  { from: 'MOHAKHALI', to: 'MOTIJHEEL', distanceKm: 9 },
+  { from: 'MOHAKHALI', to: 'DHANMONDI', distanceKm: 8 },
+  { from: 'MOHAKHALI', to: 'GULSHAN', distanceKm: 1 },
+  { from: 'GULSHAN', to: 'BASHUNDHARA', distanceKm: 5 },
+];
+
 export class DhakaCityTree {
   private nodes: Map<Zone, TreeNode> = new Map();
   public readonly root: Zone;
 
   constructor(rootZone: Zone = 'MOHAKHALI') {
     this.root = rootZone;
-    this.buildMinimumSpanningTree(rootZone);
+    this.buildTree(rootZone);
   }
 
   /**
-   * Constructs the Minimum Spanning Tree (MST) using Prim's algorithm
-   * based on road distances in DISTANCE_MATRIX.
+   * Constructs the rooted tree from the canonical Dhaka City Tree topology.
    */
-  private buildMinimumSpanningTree(root: Zone): void {
-    const visited = new Set<Zone>([root]);
+  private buildTree(root: Zone): void {
     const adjacency = new Map<Zone, Array<{ to: Zone; weight: number }>>();
 
     for (const zone of ZONES) {
       adjacency.set(zone, []);
     }
 
-    // Prim's algorithm to connect all zones with minimum total edge weight
-    while (visited.size < ZONES.length) {
-      let minWeight = Infinity;
-      let selectedEdge: { from: Zone; to: Zone; weight: number } | null = null;
-
-      for (const u of visited) {
-        for (const v of ZONES) {
-          if (!visited.has(v)) {
-            const weight = DISTANCE_MATRIX[u][v];
-            if (weight < minWeight) {
-              minWeight = weight;
-              selectedEdge = { from: u, to: v, weight };
-            }
-          }
-        }
-      }
-
-      if (!selectedEdge) {
-        break;
-      }
-
-      visited.add(selectedEdge.to);
-      adjacency.get(selectedEdge.from)!.push({
-        to: selectedEdge.to,
-        weight: selectedEdge.weight,
-      });
-      adjacency.get(selectedEdge.to)!.push({
-        to: selectedEdge.from,
-        weight: selectedEdge.weight,
-      });
+    for (const edge of DHAKA_TREE_EDGES) {
+      adjacency.get(edge.from)!.push({ to: edge.to, weight: edge.distanceKm });
+      adjacency.get(edge.to)!.push({ to: edge.from, weight: edge.distanceKm });
     }
 
     // Build rooted tree structure via BFS from the chosen root

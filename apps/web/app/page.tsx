@@ -4,11 +4,12 @@ import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import Navbar from '@/components/navbar'
 import FareEstimator from '@/components/passenger/fare-estimator'
-import MyRides from '@/components/passenger/my-rides'
 import BrowseSharedRides from '@/components/passenger/browse-shared-rides'
+import MyRides from '@/components/passenger/my-rides'
 import ActivePools from '@/components/driver/active-pools'
 import StaticRouteMap from '@/components/static-route-map'
 import { cn } from '@/lib/utils'
+import AdminPanel from '@/components/admin/admin-panel'
 import {
   Zap,
   Car,
@@ -17,15 +18,18 @@ import {
   TrendingDown,
   ChevronRight,
   Loader2,
-  Search,
+  Sparkles,
   Map,
+  ShieldAlert,
 } from 'lucide-react'
 
-type PassengerTab = 'estimate' | 'browse' | 'rides' | 'map'
+type PassengerTab = 'estimate' | 'matching' | 'rides' | 'map'
+type AdminSubView = 'admin' | 'passenger' | 'driver'
 
 export default function Home() {
   const { role, isLoading } = useAuth()
   const [passengerTab, setPassengerTab] = useState<PassengerTab>('estimate')
+  const [adminSubView, setAdminSubView] = useState<AdminSubView>('admin')
 
   if (isLoading) {
     return (
@@ -44,7 +48,9 @@ export default function Home() {
     )
   }
 
-  const isPassenger = role !== 'DRIVER'
+  const isAdmin = role === 'ADMIN'
+  const isDriver = role === 'DRIVER'
+  const isPassenger = !isAdmin && !isDriver
 
   return (
     <div className="min-h-dvh bg-[#090d16]">
@@ -56,8 +62,9 @@ export default function Home() {
           <div
             className="relative overflow-hidden rounded-3xl border border-[#1f2d44]/40"
             style={{
-              background:
-                'radial-gradient(ellipse at 30% 40%, rgba(0,212,255,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 70%, rgba(0,255,157,0.06) 0%, transparent 60%), #0f1521',
+              background: isAdmin
+                ? 'radial-gradient(ellipse at 30% 40%, rgba(245,158,11,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 70%, rgba(139,92,246,0.06) 0%, transparent 60%), #0f1521'
+                : 'radial-gradient(ellipse at 30% 40%, rgba(0,212,255,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 70%, rgba(0,255,157,0.06) 0%, transparent 60%), #0f1521',
             }}
           >
             <div className="scan-bg absolute inset-0 opacity-40 pointer-events-none" />
@@ -66,17 +73,27 @@ export default function Home() {
                 <div
                   className={cn(
                     'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold mb-4 border',
-                    isPassenger
+                    isAdmin
+                      ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                      : isPassenger
                       ? 'text-[#00d4ff] bg-[#00d4ff]/10 border-[#00d4ff]/30'
                       : 'text-[#00ff9d] bg-[#00ff9d]/10 border-[#00ff9d]/30'
                   )}
                 >
-                  {isPassenger ? <Users className="w-3.5 h-3.5" /> : <Car className="w-3.5 h-3.5" />}
-                  {isPassenger ? 'Passenger Mode' : 'Tesla Owner / Driver Mode'}
+                  {isAdmin ? <ShieldAlert className="w-3.5 h-3.5" /> : isPassenger ? <Users className="w-3.5 h-3.5" /> : <Car className="w-3.5 h-3.5" />}
+                  {isAdmin ? 'System Operator Mode' : isPassenger ? 'Passenger Mode' : 'Tesla Owner / Driver Mode'}
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[#f0f4ff] leading-tight mb-3">
-                  {isPassenger ? (
+                  {isAdmin ? (
+                    <>
+                      Dhaka Grid &amp; Surge
+                      <br />
+                      <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-purple-400">
+                        Control Center
+                      </span>
+                    </>
+                  ) : isPassenger ? (
                     <>
                       Smart EV Pooling
                       <br />
@@ -92,13 +109,21 @@ export default function Home() {
                 </h1>
 
                 <p className="text-[#8ba3c7] text-sm sm:text-base leading-relaxed mb-5">
-                  {isPassenger
+                  {isAdmin
+                    ? 'Toggle live traffic jam and rainfall conditions in real time. All fare calculations adjust deterministically according to the hand-calculable formula.'
+                    : isPassenger
                     ? 'Book affordable Tesla rides across Dhaka. Pool with others and save up to 45% on every trip — sustainable, silent, and on-demand.'
                     : 'Accept pool requests along your route. Earn more per trip by carrying multiple passengers. Zero emissions, maximum impact.'}
                 </p>
 
                 <div className="flex flex-wrap gap-2">
-                  {isPassenger ? (
+                  {isAdmin ? (
+                    <>
+                      <FeatureChip icon={<ShieldAlert className="w-3.5 h-3.5" />} text="Traffic & Rain Surge Toggles" />
+                      <FeatureChip icon={<TrendingDown className="w-3.5 h-3.5" />} text="Deterministic Hand-Calculable Fare" />
+                      <FeatureChip icon={<Zap className="w-3.5 h-3.5" />} text="Evaluator PRD Benchmark Tools" />
+                    </>
+                  ) : isPassenger ? (
                     <>
                       <FeatureChip icon={<TrendingDown className="w-3.5 h-3.5" />} text="Up to 45% off with pooling" />
                       <FeatureChip icon={<Zap className="w-3.5 h-3.5" />} text="Instant fare estimate" />
@@ -117,11 +142,40 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── Admin Mode View Switching Bar ─────────────────────── */}
+        {isAdmin && (
+          <div className="mb-6 flex bg-[#161e2e]/70 backdrop-blur-md border border-[#1f2d44]/50 rounded-2xl p-1.5 gap-1.5 max-w-md">
+            {[
+              { id: 'admin' as const, label: 'Admin Controls', icon: <ShieldAlert className="w-4 h-4" /> },
+              { id: 'passenger' as const, label: 'Passenger Preview', icon: <Users className="w-4 h-4" /> },
+              { id: 'driver' as const, label: 'Driver Preview', icon: <Car className="w-4 h-4" /> },
+            ].map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => setAdminSubView(id)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200',
+                  adminSubView === id
+                    ? 'text-white bg-amber-500/20 border border-amber-500/40 shadow-sm font-bold'
+                    : 'text-[#8ba3c7] hover:text-[#f0f4ff]'
+                )}
+              >
+                {icon}
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── Role views ────────────────────────────────────────── */}
-        {isPassenger ? (
-          <PassengerView tab={passengerTab} onTabChange={setPassengerTab} />
-        ) : (
+        {isAdmin && adminSubView === 'admin' ? (
+          <AdminPanel />
+        ) : isAdmin && adminSubView === 'driver' ? (
           <DriverView />
+        ) : isDriver ? (
+          <DriverView />
+        ) : (
+          <PassengerView tab={passengerTab} onTabChange={setPassengerTab} />
         )}
       </main>
 
@@ -150,7 +204,7 @@ function PassengerView({
       <div className="flex bg-[#161e2e]/70 backdrop-blur-md border border-[#1f2d44]/50 rounded-2xl p-1.5 gap-1.5 max-w-xl">
         {[
           { id: 'estimate' as const, label: 'Request', icon: <Zap className="w-4 h-4" /> },
-          { id: 'browse' as const, label: 'Browse Pools', icon: <Search className="w-4 h-4" /> },
+          { id: 'matching' as const, label: 'Matching Rides', icon: <Sparkles className="w-4 h-4" /> },
           { id: 'rides' as const, label: 'My Rides', icon: <Car className="w-4 h-4" /> },
           { id: 'map' as const, label: 'Route Map', icon: <Map className="w-4 h-4" /> },
         ].map(({ id, label, icon }) => (
@@ -175,7 +229,13 @@ function PassengerView({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-3 space-y-5">
-            {tab === 'estimate' ? <FareEstimator /> : tab === 'browse' ? <BrowseSharedRides /> : <MyRides />}
+            {tab === 'estimate' ? (
+              <FareEstimator />
+            ) : tab === 'matching' ? (
+              <BrowseSharedRides />
+            ) : (
+              <MyRides />
+            )}
           </div>
 
           {/* Sidebar */}
