@@ -9,6 +9,7 @@ import userRoutes from './modules/users/users.routes.js';
 import teslasRoutes from './modules/teslas/teslas.routes.js';
 import walletRoutes from './modules/wallet/wallet.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
+import systemRoutes from './modules/system/system.routes.js';
 
 export function buildApp() {
   const app = Fastify({ logger: process.env.NODE_ENV === 'production'
@@ -41,6 +42,8 @@ export function buildApp() {
   app.register(teslasRoutes, { prefix: '/api/v1/teslas' });
   app.register(walletRoutes, { prefix: '/api/v1/wallet' });
   app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
+  app.register(systemRoutes, { prefix: '/api/v1/system' });
+  app.register(systemRoutes, { prefix: '/api/system' });
 
   app.get('/health', async () => ({ status: 'ok' }));
   app.get('/ready', async (_, reply) => {

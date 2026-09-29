@@ -31,6 +31,7 @@ import {
 } from './share-discovery.js';
 import { dhakaTree } from '../../config/city-tree.js';
 import { createNotification } from '../notifications/notifications.service.js';
+import { getSystemConditions } from '../system/system.service.js';
 
 //  simple ride error handling
 
@@ -54,20 +55,27 @@ export async function estimateRide(input: EstimateRideInput) {
     throw new RideError(400, 'Pickup and destination cannot be the same zone');
   }
 
+  const conditions = await getSystemConditions();
+  const envOpts = {
+    trafficJam: conditions.isTrafficJam,
+    raining: conditions.isRaining,
+    perKmRateBDT: conditions.effectivePerKmRateBDT,
+  };
+
   const corridor = findCorridorForRoute(pickupZone, dropoffZone);
-  const fareResult = calculateFare(pickupZone, dropoffZone, passengerCount);
+  const fareResult = calculateFare(pickupZone, dropoffZone, passengerCount, envOpts);
 
   let solo: RiderFareBreakdown | undefined;
   if (corridor) {
     try {
-      solo = calculateSoloCorridorFare(pickupZone, dropoffZone, passengerCount);
+      solo = calculateSoloCorridorFare(pickupZone, dropoffZone, passengerCount, envOpts);
     } catch {
       // fallback
     }
   }
 
   const poolOptions = [1, 2, 3].map((count) => {
-    const f = calculateFare(pickupZone, dropoffZone, count);
+    const f = calculateFare(pickupZone, dropoffZone, count, envOpts);
     return {
       passengers: count,
       discountPercentage: f.discountPercentage,
@@ -128,6 +136,7 @@ export async function estimateRide(input: EstimateRideInput) {
       edges: dhakaTree.getRoute(pickupZone, dropoffZone).edges,
     },
     poolOptions,
+    systemConditions: conditions,
   };
 }
 
@@ -156,6 +165,7 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
 
   const matchingCorridors = findCorridorsForRoute(pickupZone, destinationZone);
   const assignedCorridor = matchingCorridors[0] ?? null;
+  const conditions = await getSystemConditions();
 
   return prisma.$transaction(async (tx) => {
     const newPool = await tx.pool.create({
@@ -186,10 +196,15 @@ export async function requestRide(passengerId: string, input: RequestRideInput) 
             seats,
           },
         ],
+        perKmRateBDT: conditions.effectivePerKmRateBDT,
       });
       newRiderFare = calculation.riders['new_request'];
     } else {
-      const fare = calculateFare(pickupZone, destinationZone, seats);
+      const fare = calculateFare(pickupZone, destinationZone, seats, {
+        trafficJam: conditions.isTrafficJam,
+        raining: conditions.isRaining,
+        perKmRateBDT: conditions.effectivePerKmRateBDT,
+      });
       newRiderFare = {
         requestId: 'new_request',
         pickupZone,
@@ -323,7 +338,12 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
     );
   }
 
-  const solo = calculateSoloCorridorFare(pickupZone, destinationZone, seats);
+  const conditions = await getSystemConditions();
+  const solo = calculateSoloCorridorFare(pickupZone, destinationZone, seats, {
+    trafficJam: conditions.isTrafficJam,
+    raining: conditions.isRaining,
+    perKmRateBDT: conditions.effectivePerKmRateBDT,
+  });
 
   const candidates = await prisma.pool.findMany({
     where: {
@@ -410,6 +430,7 @@ export async function listAvailableShares(passengerId: string, query: AvailableS
       corridor: resolvedCorridor,
       pickupZone,
       riders: previewRiders,
+      perKmRateBDT: conditions.effectivePerKmRateBDT,
     });
 
     const joinFare = preview.riders['preview-join'];
@@ -603,8 +624,9 @@ export async function joinPool(passengerId: string, poolId: string, input: JoinP
     }
 
     // Fare calculation: "only that part will be the fare will be shared"
+    const conditions = await getSystemConditions();
     const distanceKm = getDistance(joinerPickup, destinationZone);
-    const soloFareBDT = distanceKm * PER_KM_RATE_BDT;
+    const soloFareBDT = distanceKm * conditions.effectivePerKmRateBDT;
     const discountMultiplier = 1 - POOL_DISCOUNT_PCT; // 30% discount
     const perPersonFareBDT = Math.round(soloFareBDT * discountMultiplier);
     const totalFareBDT = perPersonFareBDT * seats;

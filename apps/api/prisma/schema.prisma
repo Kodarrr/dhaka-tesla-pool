@@ -130,9 +130,16 @@ model WalletTransaction {
   @@index([userId])
 }
 
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 enum Role {
   PASSENGER
   DRIVER
+  ADMIN
 }
 
 enum Stage {

@@ -232,22 +232,79 @@ await prisma.$transaction(async (tx) => {
 
 ## 8. Fare Calculation & Financial Precision
 
-### The Formula
-$$\text{passengerFare} = \text{baseFare} + \text{distanceCharge} - \text{poolDiscount}$$
+### The Overall Fare Formula
+$$\text{Effective Rate } (R) = \text{Base Rate} + \text{Traffic Surcharge} + \text{Rain Surcharge}$$
+$$\text{Leg Charge} = \text{Distance (km)} \times R$$
+$$\text{Discounted Shared Leg} = \text{Leg Charge} \times (1 - 0.30)$$
+$$\text{Passenger Total Fare (BDT)} = \sum \text{Shared Discounted Legs} + \sum \text{Solo Full-Rate Legs}$$
+$$\text{Stored in DB (Integer Paisa)} = \text{Passenger Total Fare (BDT)} \times 100$$
 
-- **Base Fare**: ৳100 (Solo trip minimum).
-- **Per-Km Rate**: ৳50 / km (based on predefined Dhaka zone distance matrix).
-- **Pooling Discount**: **30% off** any shared corridor segment when 2 or more passengers share seats.
+#### Rates & Multipliers (Calculable by Hand)
+- **Base Distance Rate**: **৳50 / km** (based on Dhaka road topology).
+- **Traffic Jam Surcharge**: **+৳10 / km** (+20%) when toggled **ON** by Admin.
+- **Monsoon Rain Surcharge**: **+৳10 / km** (+20%) when toggled **ON** by Admin.
+- **Combined Traffic + Rain**: **+৳20 / km** (+40%) when both are active ($R = 50 + 10 + 10 = \mathbf{৳70\text{ / km}}$).
+- **Pooling Discount**: **30% off** on any leg where 2 or more passengers share seats ($0.70 \times \text{Leg Charge}$). Solo detour legs are charged at the undiscounted rate.
+
+---
+
+### Hand-Calculable Benchmark Table (Nusrat & Rafiq Trips)
+
+The evaluator can test every single number below with a pen and paper. All numbers result in clean integers without rounding discrepancies.
+
+#### 1. Nusrat's Trip: Banani → Mohakhali (Distance = 2 km)
+| Environmental Condition | Effective Rate ($R$) | Solo Fare ($2 \times R$) | Pooled with Rafiq ($2 \times R \times 0.70$) | Stored in DB (Paisa) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Standard (Clear & Dry)** | ৳50 / km | **৳100** | **৳70** | `7,000 paisa` |
+| **🚦 Traffic Jam Active (+20%)** | ৳60 / km | **৳120** | **৳84** | `8,400 paisa` |
+| **🌧️ Monsoon Rain Active (+20%)** | ৳60 / km | **৳120** | **৳84** | `8,400 paisa` |
+| **⚡ Traffic + Rain Active (+40%)** | ৳70 / km | **৳140** | **৳98** | `9,800 paisa` |
+
+*Hand calculation verification:*
+- Standard Pooled: $2\text{ km} \times 50\text{ ৳/km} = 100\text{ ৳} \xrightarrow{30\% \text{ off}} 100 \times 0.70 = \mathbf{70\text{ BDT}}$ (7000 paisa).
+- Traffic Pooled: $2\text{ km} \times 60\text{ ৳/km} = 120\text{ ৳} \xrightarrow{30\% \text{ off}} 120 \times 0.70 = \mathbf{84\text{ BDT}}$ (8400 paisa).
+- Rain Pooled: $2\text{ km} \times 60\text{ ৳/km} = 120\text{ ৳} \xrightarrow{30\% \text{ off}} 120 \times 0.70 = \mathbf{84\text{ BDT}}$ (8400 paisa).
+- Both Pooled: $2\text{ km} \times 70\text{ ৳/km} = 140\text{ ৳} \xrightarrow{30\% \text{ off}} 140 \times 0.70 = \mathbf{98\text{ BDT}}$ (9800 paisa).
+
+---
+
+#### 2. Rafiq's Trip: Banani → Gulshan 1 (Distance = 3 km total)
+*Route Breakdown: 2 km shared with Nusrat to Mohakhali (30% discount) + 1 km solo Mohakhali → Gulshan 1 (full rate).*
+
+$$\text{Rafiq Fare} = (\text{Shared Leg: } 2 \text{ km} \times R \times 0.70) + (\text{Solo Leg: } 1 \text{ km} \times R)$$
+
+| Environmental Condition | Effective Rate ($R$) | Solo Fare ($3 \times R$) | Pooled Fare Calculation | Total Pooled Fare | Stored in DB (Paisa) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Standard (Clear & Dry)** | ৳50 / km | **৳150** | $(2 \times 50 \times 0.7) + (1 \times 50) = 70 + 50$ | **৳120** | `12,000 paisa` |
+| **🚦 Traffic Jam Active (+20%)** | ৳60 / km | **৳180** | $(2 \times 60 \times 0.7) + (1 \times 60) = 84 + 60$ | **৳144** | `14,400 paisa` |
+| **🌧️ Monsoon Rain Active (+20%)** | ৳60 / km | **৳180** | $(2 \times 60 \times 0.7) + (1 \times 60) = 84 + 60$ | **৳144** | `14,400 paisa` |
+| **⚡ Traffic + Rain Active (+40%)** | ৳70 / km | **৳210** | $(2 \times 70 \times 0.7) + (1 \times 70) = 98 + 70$ | **৳168** | `16,800 paisa` |
+
+---
+
+### Admin Profile & Environmental Control Panel
+System operators can dynamically toggle city environmental factors live from the web UI:
+1. Log in with the **Admin account** (`admin@gmail.com` / `password123`) or click **"👑 Admin (Controls)"** in the 1-Click Demo Login panel.
+2. Navigate to the **Admin Control Panel** directly from the home view or **Profile → Admin Controls**.
+3. Toggle:
+   - 🚦 **Traffic Jam**: Turns traffic surge ON/OFF (+20% / +৳10/km).
+   - 🌧️ **Monsoon Rain**: Turns rain surge ON/OFF (+20% / +৳10/km).
+4. All fare estimates, new ride requests, and active pool joiners immediately adopt the updated effective rate across the application.
+5. A live **City Surge Badge** appears in the top navigation bar alerting users to active surges.
+
+---
 
 ### Why Integer Paisa/Poysha Over Decimals
-Floating-point arithmetic in JavaScript and SQL is prone to IEEE-754 precision errors:
+Floating-point arithmetic in JavaScript and SQL is notorious for IEEE-754 precision errors:
 ```javascript
 0.1 + 0.2 = 0.30000000000000004 // Fatal for financial ledgers!
 ```
-In **Dhaka Tesla Pool**, all financial amounts are strictly stored as **integer Paisa** (1 BDT = 100 Paisa):
+In **Dhaka Tesla Pool**, all monetary quantities are stored strictly as **integer Paisa** (1 BDT = 100 Paisa):
 - ৳50.00 = `5000` paisa
-- ৳35.00 = `3500` paisa
-- Fares are converted to BDT only at the presentation layer using `formatBDT()`.
+- ৳70.00 = `7000` paisa
+- ৳84.00 = `8400` paisa
+- ৳98.00 = `9800` paisa
+- Currency conversions occur only at the UI display layer via `formatBDT()` and `formatPaisa()`.
 
 ---
 
@@ -476,6 +533,7 @@ The database is pre-seeded with the story cast and default password `password123
 
 | Role | Name | Email | Password | Initial TeslaPay Balance | Details |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Admin** | **System Operator** | `admin@gmail.com` | `password123` | N/A | Toggles **Traffic Jam** & **Rain Surge** |
 | **Driver** | **Jashim** | `jashim@gmail.com` | `password123` | ৳500.00 | Drives **Bullet** (DHA-3021, 3 seats) |
 | **Passenger** | **Nusrat** | `nusrat@gmail.com` | `password123` | ৳500.00 | Banani → Mohakhali commuter |
 | **Passenger** | **Rafiq** | `rafiq@gmail.com` | `password123` | ৳500.00 | Banani → Gulshan 1 commuter |
@@ -485,7 +543,7 @@ The database is pre-seeded with the story cast and default password `password123
 
 ## 15. Testing Suite
 
-The project includes **76 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
+The project includes **101 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
 
 To run the test suite:
 ```bash

@@ -131,6 +131,16 @@ export interface FareBreakdown {
   totalDistanceKm?: number
 }
 
+export interface SystemConditions {
+  isTrafficJam: boolean
+  isRaining: boolean
+  basePerKmRateBDT: number
+  trafficSurchargeBDT: number
+  rainSurchargeBDT: number
+  effectivePerKmRateBDT: number
+  poolDiscountPct: number
+}
+
 export interface EstimateResponse {
   pickupZone: Zone
   dropoffZone: Zone
@@ -144,6 +154,7 @@ export interface EstimateResponse {
   breakdown?: FareBreakdown
   poolOptions: PoolOption[]
   availablePoolsCount: number
+  systemConditions?: SystemConditions
 }
 
 export interface RideRequest {
@@ -238,15 +249,28 @@ export async function apiLogin(email: string, password: string) {
   const { data } = await apiClient.post('/auth/login', { email, password })
   return data as {
     access_token: string
-    user: { id: string; name: string; email: string; role: 'PASSENGER' | 'DRIVER' }
+    user: { id: string; name: string; email: string; role: 'PASSENGER' | 'DRIVER' | 'ADMIN' }
   }
 }
 
 export async function apiSignup(
-  name: string, email: string, password: string, role: 'PASSENGER' | 'DRIVER'
+  name: string, email: string, password: string, role: 'PASSENGER' | 'DRIVER' | 'ADMIN'
 ) {
   const { data } = await apiClient.post('/auth/signup', { name, email, password, role })
-  return data as { id: string; name: string; email: string; role: 'PASSENGER' | 'DRIVER' }
+  return data as { id: string; name: string; email: string; role: 'PASSENGER' | 'DRIVER' | 'ADMIN' }
+}
+
+export async function apiGetSystemConditions(): Promise<SystemConditions> {
+  const { data } = await apiClient.get<SystemConditions>('/system/conditions')
+  return data
+}
+
+export async function apiUpdateSystemConditions(body: {
+  isTrafficJam?: boolean
+  isRaining?: boolean
+}): Promise<SystemConditions> {
+  const { data } = await apiClient.patch<SystemConditions>('/system/admin/conditions', body)
+  return data
 }
 
 export async function apiEstimate(body: EstimateRequest) {

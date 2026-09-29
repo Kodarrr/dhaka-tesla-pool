@@ -21,6 +21,7 @@ import {
   Layers,
   Share2,
   Check,
+  CloudRain,
 } from 'lucide-react'
 
 const PASSENGER_COUNTS = [1, 2, 3] as const
@@ -427,6 +428,26 @@ export default function FareEstimator() {
                 </p>
               </div>
             </div>
+
+            {/* Environmental Conditions Surge Notice */}
+            {estimate.systemConditions && (estimate.systemConditions.isTrafficJam || estimate.systemConditions.isRaining) && (
+              <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-amber-300 font-medium">
+                  {estimate.systemConditions.isTrafficJam && <Car className="w-4 h-4 text-orange-400" />}
+                  {estimate.systemConditions.isRaining && <CloudRain className="w-4 h-4 text-blue-400" />}
+                  <span>
+                    {estimate.systemConditions.isTrafficJam && estimate.systemConditions.isRaining
+                      ? 'Active Surge: Traffic Jam & Monsoon Rain (+40%)'
+                      : estimate.systemConditions.isTrafficJam
+                      ? 'Active Surge: Traffic Jam (+20%)'
+                      : 'Active Surge: Monsoon Rain (+20%)'}
+                  </span>
+                </div>
+                <span className="font-bold text-amber-400">
+                  ৳{estimate.systemConditions.effectivePerKmRateBDT}/km
+                </span>
+              </div>
+            )}
 
             {/* Leg-by-leg preview */}
             {estimate.breakdown && estimate.breakdown.legs.length > 0 && (

@@ -37,6 +37,24 @@ async function main() {
     create: { name: 'Shirin', email: 'shirin@gmail.com', passwordHash, role: 'PASSENGER' },
   });
 
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@gmail.com' },
+    update: { role: 'ADMIN' },
+    create: { name: 'System Admin', email: 'admin@gmail.com', passwordHash, role: 'ADMIN' },
+  });
+
+  await prisma.systemSetting.upsert({
+    where: { key: 'traffic_jam' },
+    update: {},
+    create: { key: 'traffic_jam', value: 'false' },
+  });
+
+  await prisma.systemSetting.upsert({
+    where: { key: 'raining' },
+    update: {},
+    create: { key: 'raining', value: 'false' },
+  });
+
   // ── Seed Active Test Pools for Tree Matching & Pooling ───────────────────
   // Pool 1: Banani -> Mohakhali (Nusrat - Airport Road corridor, Matched with Bullet)
   const pool1 = await prisma.pool.upsert({

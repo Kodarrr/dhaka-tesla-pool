@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { apiLogin, apiSignup } from '@/lib/api'
 
-export type UserRole = 'PASSENGER' | 'DRIVER'
+export type UserRole = 'PASSENGER' | 'DRIVER' | 'ADMIN'
 export type AuthModalMode = 'login' | 'signup'
 
 export const TOKEN_KEY = 'dtp_access_token'
