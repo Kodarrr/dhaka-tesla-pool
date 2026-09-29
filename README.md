@@ -301,7 +301,7 @@ In **Dhaka Tesla Pool**, all monetary quantities are stored strictly as **intege
 To eliminate routing ambiguity and enable mathematically deterministic ride-pooling, Dhaka's road network is modeled as a **Spanning Tree**:
 
 ### Dhaka City Tree Structure Diagram
-![Dhaka City Tree Structure Diagram](./docs/dhaka-tree.png)
+![Dhaka City Tree Structure Diagram](./docs/dhaka-tree(1).png)
 
 ### The Tree Structure
 Dhaka City's 7 key zones form a single connected component with road distance weights:
