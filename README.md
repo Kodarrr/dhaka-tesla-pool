@@ -7,7 +7,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat&logo=prisma&logoColor=white)](https://www.prisma.io/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=flat&logo=vitest&logoColor=white)](https://vitest.dev/)
+
 
 ---
 
@@ -18,19 +18,23 @@
 - [4. Core Features Implemented](#4-core-features-implemented)
 - [5. Application Screenshots & UI Showcase](#5-application-screenshots--ui-showcase)
 - [6. Technology Choices & Justification](#6-technology-choices--justification)
-- [7. Concurrency & Overbooking Prevention](#7-concurrency--overbooking-prevention)
-- [8. Fare Calculation & Financial Precision](#8-fare-calculation--financial-precision)
-- [9. Dhaka City Tree Topology & Ride Matching Algorithm](#9-dhaka-city-tree-topology--ride-matching-algorithm)
-- [10. Route Direction & Reverse-Passenger Prevention](#10-route-direction--reverse-passenger-prevention)
-- [11. Ride Lifecycle & State Machine](#11-ride-lifecycle--state-machine)
-- [12. Project Structure](#12-project-structure)
-- [13. Local Setup & Installation](#13-local-setup--installation)
-- [14. Demo Credentials](#14-demo-credentials)
-- [15. Testing Suite](#15-testing-suite)
-- [16. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)](#16-bonus-if-oi-tesla-goes-viral-1m-scale-blueprint)
-- [17. AI Usage Disclosure](#17-ai-usage-disclosure)
-- [18. Git Workflow & Branching](#18-git-workflow--branching)
-- [19. Six-Minute Demo Video Walkthrough](#19-six-minute-demo-video-walkthrough)
+- [7. Key Engineering Decisions & Trade-offs](#7-key-engineering-decisions--trade-offs)
+- [8. Concurrency & Overbooking Prevention](#8-concurrency--overbooking-prevention)
+- [9. Fare Calculation & Financial Precision](#9-fare-calculation--financial-precision)
+- [10. Dhaka City Tree Topology & Ride Matching Algorithm](#10-dhaka-city-tree-topology--ride-matching-algorithm)
+- [11. Route Direction & Reverse-Passenger Prevention](#11-route-direction--reverse-passenger-prevention)
+- [12. Ride Lifecycle & State Machine](#12-ride-lifecycle--state-machine)
+- [13. API Overview](#13-api-overview)
+- [14. Project Structure](#14-project-structure)
+- [15. Local Setup & Docker Deployment](#15-local-setup--docker-deployment)
+- [16. Deployment & Cloud Hosting](#16-deployment--cloud-hosting)
+- [17. Demo Credentials](#17-demo-credentials)
+- [18. Testing Suite](#18-testing-suite)
+- [19. Known Limitations & Next Improvements](#19-known-limitations--next-improvements)
+- [20. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)](#20-bonus-if-oi-tesla-goes-viral-1m-scale-blueprint)
+- [21. AI Usage Disclosure](#21-ai-usage-disclosure)
+- [22. Git Workflow & Branching](#22-git-workflow--branching)
+- [23. Six-Minute Demo Video Walkthrough](#23-six-minute-demo-video-walkthrough)
 
 ---
 
@@ -95,80 +99,52 @@ The project is structured as a high-performance **monorepo**:
 
 ## 5. Application Screenshots & UI Showcase
 
-> *Note: Place your UI screenshots in the `docs/screenshots/` directory or link them directly below.*
+### 1. Passenger Portal & Route Configuration
+*Configure pickup and dropoff corridors, select seat requirements (1–3 seats), and view live Dhaka coverage zones alongside real-time environmental surge notifications.*
 
-### 1. Passenger Ride Discovery & Shared Route Joining
-*Passengers select boarding and dropoff points along the vehicle's forward corridor with live 30% discount preview.*
-
-<!-- Replace with your screenshot -->
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ SCREENSHOT PLACEHOLDER: Browse Shared Rides & Live Route Heading ]   │
-│                                                                        │
-│ Suggested image: docs/screenshots/browse-rides.png                     │
-└────────────────────────────────────────────────────────────────────────┘
-```
-*(Path: `docs/screenshots/browse-rides.png`)*
+![Passenger Route Request](./docs/screenshots/passenger-home-request.png)
 
 ---
 
-### 2. Live Corridor Progression & Ride Status
-*Clear visual tracking of vehicle current location, co-riders, fare breakdown, and payment status.*
+### 2. Route Matching & Shared Ride Discovery
+*The Dhaka Tree algorithm evaluates corridor paths to match compatible active pools, highlighting 100% sub-route matches and available seat capacity.*
 
-<!-- Replace with your screenshot -->
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ SCREENSHOT PLACEHOLDER: Passenger Active Ride & Corridor Route ]     │
-│                                                                        │
-│ Suggested image: docs/screenshots/my-rides-tracking.png                │
-└────────────────────────────────────────────────────────────────────────┘
-```
-*(Path: `docs/screenshots/my-rides-tracking.png`)*
+![Route Ride Matching](./docs/screenshots/route-ride-matching.png)
 
 ---
 
-### 3. Exit Payment Handshake (TeslaPay vs Cash)
-*Passenger pays upon vehicle exit. TeslaPay settles automatically, while Cash enters pending driver confirmation.*
+### 3. Ride Lifecycle Tracking & Pay-on-Exit
+*Visual state machine tracking from request to completion (`Requested` → `Matched` → `Driver arrived` → `In progress` → `Completed`) with dual settlement options (TeslaPay Wallet and Cash).*
 
-<!-- Replace with your screenshot -->
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ SCREENSHOT PLACEHOLDER: Exit Payment & Driver Cash Confirmation ]    │
-│                                                                        │
-│ Suggested image: docs/screenshots/payment-handshake.png                │
-└────────────────────────────────────────────────────────────────────────┘
-```
-*(Path: `docs/screenshots/payment-handshake.png`)*
+![My Rides Tracking](./docs/screenshots/my-rides-tracking.png)
 
 ---
 
-### 4. Driver Dashboard (Jashim & Bullet)
-*Driver sees active pool capacity, rider list, stages, and cash receipt verification.*
+### 4. Admin Control Panel & Dynamic Surcharges
+*System operators can toggle Traffic Jam (+20%) and Monsoon Rain (+20%) surcharges in real-time, instantly recalculating the hand-calculable per-kilometer rate.*
 
-<!-- Replace with your screenshot -->
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ SCREENSHOT PLACEHOLDER: Driver Active Pools Dashboard ]              │
-│                                                                        │
-│ Suggested image: docs/screenshots/driver-dashboard.png                 │
-└────────────────────────────────────────────────────────────────────────┘
-```
-*(Path: `docs/screenshots/driver-dashboard.png`)*
+![Admin Control Panel](./docs/screenshots/admin-panel-surge.png)
 
 ---
 
-### 5. Profile & TeslaPay Wallet Transactions
-*Wallet balance overview, instant top-up (capped at ৳50,000), and transaction ledger.*
+### 5. Schematic Dhaka Transit Map
+*Topological network representing Dhaka's 7 key transit hubs and road distance weights rooted at the central Mohakhali junction.*
 
-<!-- Replace with your screenshot -->
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ SCREENSHOT PLACEHOLDER: TeslaPay Wallet & Transaction History ]      │
-│                                                                        │
-│ Suggested image: docs/screenshots/wallet-profile.png                   │
-└────────────────────────────────────────────────────────────────────────┘
-```
-*(Path: `docs/screenshots/wallet-profile.png`)*
+![Schematic Dhaka Transit Map](./docs/screenshots/dhaka-transit-map.png)
+
+---
+
+### 6. Passenger Ride History & Spending Analytics
+*Complete audit trail of user journeys, showing completed corridors, timestamps, assigned drivers, and total expenditure.*
+
+![User Ride History](./docs/screenshots/user-ride-history.png)
+
+---
+
+### 7. TeslaPay Digital Wallet & Instant Settlement
+*Built-in wallet displaying real-time balance, one-click quick top-up options, and an immutable transaction ledger for automated ride payments.*
+
+![TeslaPay Wallet](./docs/screenshots/teslapay-wallet.png)
 
 ---
 
@@ -185,7 +161,19 @@ The project is structured as a high-performance **monorepo**:
 
 ---
 
-## 7. Concurrency & Overbooking Prevention
+## 7. Key Engineering Decisions & Trade-offs
+
+| Engineering Decision | Chosen Solution | Alternative Considered | Trade-off Rationale |
+| :--- | :--- | :--- | :--- |
+| **Concurrency Control** | PostgreSQL Pessimistic Row Locking (`SELECT ... FOR UPDATE`) | In-memory queues / Redis distributed lock | Guarantees atomic seat reservations and zero overbooking without introducing external cache/queue infrastructure for the MVP. |
+| **Route & Matchmaking Model** | Deterministic Spanning Tree with Prim's MST & LCA | Google Maps Directions API / OSRM | Provides $\mathcal{O}(1)$ deterministic distance lookups, predictable leg discounts testable by hand, and eliminates third-party API costs/quotas. |
+| **Financial Ledger Precision** | Integer Paisa (1 BDT = 100 Paisa) | Floating point (`DECIMAL` / `FLOAT`) | Eliminates IEEE-754 precision drift across multiple pooled legs and wallet balance debits/credits. Conversions happen only on UI formatters. |
+| **System Architecture** | Modular Monolith (Fastify + Next.js App Router) | Microservices with Kafka | Adheres strictly to Section 9 of the brief. Keeps operational overhead minimal while achieving 3x-5x the throughput of classic Express stacks. |
+| **State Machine Governance** | Server-enforced linear lifecycle checks | Client-side optimistic state transitions | Prevents illegal state jumps (e.g. canceling after `MATCHED` or double payments), ensuring single-source-of-truth consistency in the DB. |
+
+---
+
+## 8. Concurrency & Overbooking Prevention
 
 ### The Problem Scenario
 Bullet has **1 seat remaining**. At 8:43:00 AM, **Nusrat** and **Shirin** both click *"Confirm & Join"* at the exact same millisecond. In a naive system without concurrency control:
@@ -230,7 +218,7 @@ await prisma.$transaction(async (tx) => {
 
 ---
 
-## 8. Fare Calculation & Financial Precision
+## 9. Fare Calculation & Financial Precision
 
 ### The Overall Fare Formula
 $$\text{Effective Rate } (R) = \text{Base Rate} + \text{Traffic Surcharge} + \text{Rain Surcharge}$$
@@ -308,15 +296,12 @@ In **Dhaka Tesla Pool**, all monetary quantities are stored strictly as **intege
 
 ---
 
-## 9. Dhaka City Tree Topology & Ride Matching Algorithm
+## 10. Dhaka City Tree Topology & Ride Matching Algorithm
 
 To eliminate routing ambiguity and enable mathematically deterministic ride-pooling, Dhaka's road network is modeled as a **Spanning Tree**:
 
 ### Dhaka City Tree Structure Diagram
-<!-- Place your diagram image at docs/dhaka-city-tree.png or update the path below -->
 ![Dhaka City Tree Structure Diagram](./docs/dhaka-tree.png)
-
-> 📸 **Image Placeholder**: Add your Dhaka City Tree diagram at `docs/dhaka-city-tree.png` to illustrate the spanning tree hierarchy and hub-and-spoke branches.
 
 ### The Tree Structure
 Dhaka City's 7 key zones form a single connected component with road distance weights:
@@ -329,24 +314,6 @@ Dhaka City's 7 key zones form a single connected component with road distance we
   - `MOHAKHALI` $\leftrightarrow$ `DHANMONDI` (8 km)
   - `DHANMONDI` $\leftrightarrow$ `MOTIJHEEL` (6 km)
 - **Total Edges**: Exactly $N - 1 = 6$ edges connecting all 7 zones with zero cycles.
-
-<!-- ```mermaid
-graph TD
-    MOHAKHALI["MOHAKHALI (Central Root Hub)"]
-    BANANI["BANANI"]
-    GULSHAN["GULSHAN"]
-    DHANMONDI["DHANMONDI"]
-    BASHUNDHARA["BASHUNDHARA"]
-    UTTARA["UTTARA"]
-    MOTIJHEEL["MOTIJHEEL"]
-
-    MOHAKHALI ---|2 km| BANANI
-    MOHAKHALI ---|1 km| GULSHAN
-    MOHAKHALI ---|8 km| DHANMONDI
-    GULSHAN ---|5 km| BASHUNDHARA
-    BASHUNDHARA ---|8 km| UTTARA
-    DHANMONDI ---|6 km| MOTIJHEEL
-``` -->
 
 ### Core Algorithmic Mechanics:
 
@@ -374,7 +341,7 @@ graph TD
 
 ---
 
-## 10. Route Direction & Reverse-Passenger Prevention
+## 11. Route Direction & Reverse-Passenger Prevention
 
 A critical issue in ride-pooling is direction compatibility. If Bullet is travelling Southbound along Airport Road:
 $$\text{UTTARA (0)} \to \text{BANANI (1)} \to \text{MOHAKHALI (2)} \to \text{GULSHAN (3)} \to \text{BASHUNDHARA (4)}$$
@@ -393,7 +360,7 @@ A passenger at **Mohakhali (Index 2)** attempting to book to **Banani (Index 1)*
 
 ---
 
-## 11. Ride Lifecycle & State Machine
+## 12. Ride Lifecycle & State Machine
 
 ```
 [REQUESTED] 
@@ -418,7 +385,41 @@ A passenger at **Mohakhali (Index 2)** attempting to book to **Banani (Index 1)*
 
 ---
 
-## 12. Project Structure
+## 13. API Overview
+
+All backend endpoints are prefixed with `/api/v1`. Authenticated requests use standard Bearer tokens (`Authorization: Bearer <jwt>`).
+
+| Method | Endpoint | Access | Purpose & Scope |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/signup` | Public | Register passenger or driver account (preloaded ৳500 wallet balance). |
+| `POST` | `/api/v1/auth/login` | Public | Authenticate user credentials and return signed JWT. |
+| `POST` | `/api/v1/rides/estimate` | Public | Hand-calculable fare estimate across pickup and dropoff corridors. |
+| `POST` | `/api/v1/rides/request` | Passenger | Create a new solo ride request or initialize an open pool. |
+| `GET` | `/api/v1/rides/browse` | Authenticated | Browse available forward-matching pools along corridor. |
+| `POST` | `/api/v1/rides/:poolId/join` | Passenger | Concurrently lock pool row and reserve seat (`FOR UPDATE`). |
+| `GET` | `/api/v1/rides/my-rides` | Passenger | List active passenger ride requests and lifecycle status. |
+| `POST` | `/api/v1/rides/:id/cancel` | Passenger | Cancel ride strictly while in `REQUESTED` stage. |
+| `POST` | `/api/v1/rides/:id/pay` | Passenger | Pay on exit via TeslaPay atomic balance transfer or Cash. |
+| `POST` | `/api/v1/rides/:id/rate` | Passenger | Submit 1–5 star driver review and optional feedback. |
+| `GET` | `/api/v1/rides/history` | Passenger | Retrieve passenger's completed journeys and total spending. |
+| `GET` | `/api/v1/driver/status` | Driver | Fetch active vehicle information, capacity, and current stage. |
+| `POST` | `/api/v1/driver/toggle-online` | Driver | Toggle driver availability between Online and Offline. |
+| `POST` | `/api/v1/driver/:poolId/accept` | Driver | Accept incoming pool request and transition to `MATCHED`. |
+| `POST` | `/api/v1/driver/:poolId/arrived` | Driver | Mark vehicle arrival at corridor boarding node (`DRIVER_ARRIVED`). |
+| `POST` | `/api/v1/driver/:poolId/start` | Driver | Start trip progression toward dropoff nodes (`IN_PROGRESS`). |
+| `POST` | `/api/v1/driver/:poolId/complete`| Driver | Arrive at destination and prompt passenger payment (`ARRIVED_AT_DESTINATION`). |
+| `POST` | `/api/v1/driver/rides/:rideId/confirm-cash` | Driver | Verify and settle passenger cash payment handshake. |
+| `GET` | `/api/v1/driver/history` | Driver | Driver earnings summary, completed rides, and ratings tally. |
+| `GET` | `/api/v1/wallet` | Authenticated | Fetch current TeslaPay wallet balance and transaction ledger. |
+| `POST` | `/api/v1/wallet/topup` | Authenticated | Instant wallet balance top-up (capped at ৳50,000). |
+| `GET` | `/api/v1/system/conditions` | Public | Fetch real-time environmental factors (Traffic Jam & Rain Surge). |
+| `PATCH`| `/api/v1/system/conditions` | Admin | Toggle Traffic Jam (+20%) and Monsoon Rain (+20%) surcharges. |
+| `GET` | `/api/v1/notifications` | Authenticated | Retrieve live in-app passenger and driver notifications. |
+| `POST` | `/api/v1/notifications/read-all`| Authenticated | Mark all pending notifications as read. |
+
+---
+
+## 14. Project Structure
 
 ```
 dhaka-tesla-pool/
@@ -461,87 +462,118 @@ dhaka-tesla-pool/
 │       └── package.json
 │
 ├── docs/                             # Architecture diagrams & documentation
+│   ├── screenshots/                  # Application UI screenshots
+│   ├── ER-diagram.png                # Entity-Relationship Diagram
+│   └── dhaka-tree.png                # Dhaka city tree diagram
 ├── Architecture_Diagram.png          # System Architecture Diagram
-├── docker-compose.yml                # PostgreSQL container orchestration
+├── docker-compose.yml                # Full-stack container orchestration (Postgres, API, Web)
 ├── .env.example                      # Sample environment variables
 └── README.md                         # Project documentation
 ```
 
 ---
 
-## 13. Local Setup & Installation
+## 15. Local Setup & Docker Deployment
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18.x or v20.x recommended)
-- [Docker](https://www.docker.com/) & Docker Compose
-- `npm` or `pnpm`
+- [Docker](https://www.docker.com/) & Docker Compose (v2.x+)
 
-### Step 1: Clone the Repository
+### Quick Start (Single Command)
+
 ```bash
-git clone https://github.com/your-username/dhaka-tesla-pool.git
+# 1. Clone the repository
+git clone https://github.com/Kodarrr/dhaka-tesla-pool.git
 cd dhaka-tesla-pool
+
+# 2. Build and run all services
+docker compose up --build -d
 ```
 
-### Step 2: Configure Environment Variables
-Copy the sample environment files:
+The stack starts automatically in detached mode:
+- **PostgreSQL 16**: Initializes database schema and runs health checks.
+- **Fastify Backend API**: Pushes Prisma schema, automatically seeds demo cast data (`Jashim`, `Nusrat`, `Rafiq`, `Shirin`), and starts on port `8000`.
+- **Next.js 14 Frontend**: Builds production assets and starts on port `3000`.
+
+### Service Endpoints & Healthchecks
+
+| Service | Access URL | Port | Healthcheck Target |
+| :--- | :--- | :--- | :--- |
+| **Web Frontend** | `http://localhost:3000` | `3000` | HTTP 200 on `/` |
+| **Backend API** | `http://localhost:8000` | `8000` | HTTP 200 on `/ready` |
+| **PostgreSQL Database** | `localhost:5432` | `5432` | `pg_isready` |
+
 ```bash
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env.local
+# View live application logs
+docker compose logs -f
+
+# Stop and remove containers
+docker compose down
 ```
 
-### Step 3: Start the PostgreSQL Database via Docker
-```bash
-docker compose up -d
-```
-*This starts PostgreSQL 16 on `localhost:5432` with database `dhaka_tesla_pool`.*
+---
 
-### Step 4: Install Dependencies & Setup Database
+<details>
+<summary><b>Manual Development Setup (Without Docker)</b></summary>
+
 ```bash
-# Install root & workspace packages
+# 1. Install workspace dependencies
 npm install
 
-# Setup backend schema & run migrations
+# 2. Setup environment variables
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
+
+# 3. Start local PostgreSQL, run migrations & seed demo cast
 cd apps/api
 npx prisma db push
-
-# Seed the database with the story cast (Jashim, Bullet, Nusrat, Rafiq, Shirin)
 npm run seed
-```
 
-### Step 5: Start Development Servers
-Open two terminal windows:
-
-**Terminal 1 — API Server (Port 8000):**
-```bash
-cd apps/api
+# 4. Start API server (Port 8000)
 npm run dev
-```
 
-**Terminal 2 — Web Frontend (Port 3000):**
-```bash
+# 5. In a second terminal, start Web frontend (Port 3000)
 cd apps/web
 npm run dev
 ```
 
-Visit **`http://localhost:3000`** in your browser.
+Visit `http://localhost:3000` in your browser.
+</details>
 
 ---
 
-## 14. Demo Credentials
+## 16. Deployment & Cloud Hosting
+
+### Live Public URLs
+- **Web Application**: `https://dhaka-tesla-pool.vercel.app` *(Placeholder / Update with live URL)*
+- **API Backend**: `https://dhaka-tesla-pool-api.onrender.com` *(Placeholder / Update with live URL)*
+
+### Free-Tier Cloud Deployment Notes
+In accordance with Section 6 of the project brief (*"free/free-tier only, do not pay. If free backend hosting isn't available, document the constraint and give a reproducible Docker deployment instead"*):
+- **Frontend**: Designed for zero-config deployment on **Vercel** or **Render Static Sites** with `NEXT_PUBLIC_API_URL` pointing to the backend.
+- **Backend & Database**: Fastify + PostgreSQL 16 can be deployed to **Render (Free Web Service + Free PostgreSQL)**, **Railway**, or **Koyeb**.
+- **Reproducible Docker Deployment**: On any virtual private server (e.g. AWS free-tier EC2, DigitalOcean droplet, or local machine), run:
+  ```bash
+  docker compose up --build -d
+  ```
+  All services, networking, database push, seed cast data, and container health checks start seamlessly in under 60 seconds.
+
+---
+
+## 17. Demo Credentials
 
 The database is pre-seeded with the story cast and default password `password123`:
 
 | Role | Name | Email | Password | Initial TeslaPay Balance | Details |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Admin** | **System Operator** | `admin@gmail.com` | `password123` | N/A | Toggles **Traffic Jam** & **Rain Surge** |
-| **Driver** | **Jashim** | `jashim@gmail.com` | `password123` | ৳500.00 | Drives **Bullet** (DHA-3021, 3 seats) |
-| **Passenger** | **Nusrat** | `nusrat@gmail.com` | `password123` | ৳500.00 | Banani → Mohakhali commuter |
-| **Passenger** | **Rafiq** | `rafiq@gmail.com` | `password123` | ৳500.00 | Banani → Gulshan 1 commuter |
-| **Passenger** | **Shirin** | `shirin@gmail.com` | `password123` | ৳500.00 | Claims final seat on corridor |
+| **Driver** | **Jashim** | `jashim@gmail.com` | `password123` | ৳500.00 | Drives **Bullet** (3 seats) |
+| **Passenger** | **Nusrat** | `nusrat@gmail.com` | `password123` | ৳500.00 | ---|
+| **Passenger** | **Rafiq** | `rafiq@gmail.com` | `password123` | ৳500.00 | ---|
+| **Passenger** | **Shirin** | `shirin@gmail.com` | `password123` | ৳500.00 | --- |
 
 ---
 
-## 15. Testing Suite
+## 18. Testing Suite
 
 The project includes **101 automated unit and integration tests** verifying critical pooling algorithms, fare calculations, and edge cases.
 
@@ -563,7 +595,23 @@ npm test
 
 ---
 
-## 16. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)
+## 19. Known Limitations & Next Improvements
+
+### Current MVP Limitations
+1. **Short-Polling (5-Second Intervals)**: The frontend currently polls `/api/v1/rides/my-rides` and driver endpoints every 5 seconds rather than maintaining a persistent bi-directional WebSocket connection.
+2. **Fixed 7-Zone Network**: Trips are mapped to predefined arterial nodes (`UTTARA`, `BANANI`, `MOHAKHALI`, `GULSHAN`, `BASHUNDHARA`, `DHANMONDI`, `MOTIJHEEL`) rather than arbitrary continuous coordinate polyline paths.
+3. **Simulated Wallet & Gateway**: TeslaPay operates on an internal ACID transactional ledger rather than integrating an external mobile financial service (bKash, Nagad, SSLCommerz).
+4. **Single-Vehicle Focus**: Built around Jashim and his 3-seater "Bullet" EV to demonstrate core pooling, reverse prevention, and concurrency logic.
+
+### Next Production Improvements
+- **WebSockets / Server-Sent Events (SSE)**: Replace polling with event-driven subscriptions for instant vehicle location and ride stage transitions.
+- **PostGIS Spatial Coordinates**: Expand tree nodes to continuous GPS coordinates with geo-fencing and spatial radius queries.
+- **Redis In-Memory Distributed Caching**: Offload frequent rate estimates and active pool lookups from PostgreSQL to Redis.
+- **Commercial MFS Gateway Handshake**: Integrate sandbox bKash and Nagad payment webhooks for real Bangladeshi Taka settlements.
+
+---
+
+## 20. Bonus: "If Oi Tesla Goes Viral" (1M Scale Blueprint)
 
 If Dhaka Tesla Pool scales from 1 Tesla to **1,000,000 passengers** and **100,000 drivers**, here is our architectural evolution strategy:
 
@@ -601,7 +649,7 @@ If Dhaka Tesla Pool scales from 1 Tesla to **1,000,000 passengers** and **100,00
 
 ---
 
-## 17. AI Usage Disclosure
+## 21. AI Usage Disclosure
 
 In compliance with the assessment guidelines:
 - **Tools Used**: Google Antigravity, Cursor, Claude 3.5 Sonnet, ChatGPT.
@@ -611,7 +659,7 @@ In compliance with the assessment guidelines:
 
 ---
 
-## 18. Git Workflow & Branching
+## 22. Git Workflow & Branching
 
 The repository strictly follows the branching strategy described in Section 10 of the brief:
 - **`master`**: Stable production-ready baseline.
@@ -626,7 +674,7 @@ The repository strictly follows the branching strategy described in Section 10 o
 
 ---
 
-## 19. Six-Minute Demo Video Walkthrough
+## 23. Six-Minute Demo Video Walkthrough
 
 > **[Click Here to Watch the 6-Minute Loom Walkthrough](https://www.loom.com/share/your-video-link-here)** *(Placeholder)*
 
@@ -641,7 +689,9 @@ The repository strictly follows the branching strategy described in Section 10 o
 
 ---
 
-## 👨‍💻 Author & Engineering Ownership
-Crafted with precision by the Chief Tesla Engineer.  
-*In Dhaka, your Tesla may have three wheels — but your engineering is production-grade.* 🚀
+## Author
 
+**Shah Md Khalil Ullah**
+
+- [cite: Email](mailto:sm.khalil.ullah.26@gmail.com)
+- [cite: LinkedIn](https://www.linkedin.com/in/shah-md-khalil-ullah-02396b2b0/) 
