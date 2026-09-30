@@ -680,17 +680,18 @@ The repository strictly follows the branching strategy described in Section 10 o
 
 ## 23. Six-Minute Demo Video Walkthrough
 
-> **[Click Here to Watch the 6-Minute Loom Walkthrough](https://www.loom.com/share/your-video-link-here)** *(Placeholder)*
+> 🎥 **[Click Here to Watch the Video Walkthrough on Loom](https://www.loom.com/share/f7333cbfd0714666a1c74e72bb754d4e)** *(Duration: 8 min 23 sec)*
 
 ### Video Timeline Breakdown:
-- **0:00 – 1:00 | Problem Understanding**: The Dhaka rush-hour dilemma, Nusrat & Rafiq's shared route, and Jashim's Bullet capacity problem.
-- **1:00 – 3:00 | Architecture & Engineering Decisions**: Walkthrough of Fastify + Prisma + Next.js architecture, concurrency handling with `FOR UPDATE` row-locking, and integer paisa financial precision.
-- **3:00 – 6:00 | Live Product Tour**:
-  - Passenger flow: Nusrat and Rafiq booking Banani corridor.
+- **0:00 – 1:30 | Problem Understanding & Story Cast**: The Dhaka rush-hour dilemma, corridor matching as the primary problem, cast introductions (Jashim, Bullet, Nusrat, Rafiq).
+- **1:30 – 3:45 | Architecture, Tree Topology & Key Decisions**: Walkthrough of Fastify + Prisma + Next.js architecture, ERD database design, Prim's MST & LCA routing trade-off, and PostgreSQL `SELECT ... FOR UPDATE` row-locking for concurrency.
+- **3:45 – 7:30 | Live Product Tour & Edge Cases**:
+  - Passenger flow: Nusrat booking Banani to Mohakhali corridor.
   - Driver flow: Jashim accepting pool, marking arrival, and starting trip.
   - Reverse-direction rejection demonstration.
+  - 100% Sub-route matching with 30% pooling discount (Rafiq).
   - Exit payment handshake (TeslaPay auto-debit and cash confirmation).
-
+- **7:30 – 8:28 | Administrative Controls & Conclusion**: Overview of administrative panel functionality and real-time environmental factor management—such as traffic congestion and inclement weather—featuring an automated 20% fare surcharge in both scenarios, followed by concluding remarks.
 ---
 
 ## Author
